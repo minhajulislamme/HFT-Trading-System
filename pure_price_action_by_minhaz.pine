@@ -1,0 +1,175 @@
+//@version=6
+indicator("Pure Price Action Analysis By Minhaz", overlay=true)
+
+// =============================================================================
+// PURE PRICE ACTION STRATEGY - TRADINGVIEW VERSION
+// Perfectly matches the Python PurePriceActionStrategy implementation
+// 
+// Features:
+// - Zero Division Protection on all calculations
+// - Exact signal scoring system match with Python bot
+// - Mathematical price action analysis (no traditional indicators)
+// - Support/Resistance detection, momentum, volatility analysis
+// - Enhanced error handling and data validation
+// =============================================================================
+
+// =============================================================================
+// INPUT PARAMETERS
+// =============================================================================
+
+// Price Action Settings (matching Python strategy defaults)
+lookback_period = input.int(20, title="Lookback Period", minval=5, maxval=50)
+breakout_threshold = input.float(2.0, title="Breakout Threshold %", minval=0.5, maxval=5.0, step=0.1)
+sr_strength = input.int(3, title="Support/Resistance Strength", minval=2, maxval=5)
+momentum_window = input.int(10, title="Momentum Window", minval=5, maxval=20)
+volatility_window = input.int(14, title="Volatility Window", minval=10, maxval=30)
+
+// Display Options
+show_support_resistance = input.bool(true, title="Show Support/Resistance Levels")
+show_breakout_signals = input.bool(true, title="Show Breakout Signals")
+show_momentum_info = input.bool(true, title="Show Momentum Information")
+
+// =============================================================================
+// PURE PRICE ACTION CALCULATIONS (with division by zero protection)
+// =============================================================================
+
+// Price momentum calculation (protected against division by zero)
+price_momentum = close[momentum_window] != 0 ? (close - close[momentum_window]) / close[momentum_window] * 100 : 0
+
+// Volatility using standard deviation of returns (protected)
+returns = close[1] != 0 ? (close - close[1]) / close[1] : 0
+volatility = ta.stdev(returns, volatility_window) * 100
+
+// Support and Resistance Levels
+resistance_level = ta.highest(high, lookback_period)
+support_level = ta.lowest(low, lookback_period)
+
+// Distance from support/resistance (protected against division by zero)
+dist_from_resistance = close != 0 ? (resistance_level - close) / close * 100 : 0
+dist_from_support = support_level != 0 ? (close - support_level) / support_level * 100 : 0
+
+// Price position within range (protected against division by zero)
+range_size = resistance_level - support_level
+price_position = range_size != 0 ? (close - support_level) / range_size * 100 : 50
+
+// Breakout detection
+near_resistance = dist_from_resistance < breakout_threshold
+near_support = dist_from_support < breakout_threshold
+
+bullish_breakout = close > resistance_level[1] and near_resistance[1]
+bearish_breakdown = close < support_level[1] and near_support[1]
+
+// Volume analysis (protected against division by zero)
+avg_volume = ta.sma(volume, lookback_period)
+volume_ratio = avg_volume != 0 ? volume / avg_volume : 1.0
+high_volume = volume_ratio > 1.5
+
+// Candlestick analysis (protected against division by zero)
+body_size = math.abs(close - open)
+total_range = high - low
+body_ratio = total_range != 0 ? body_size / total_range : 0.5
+
+strong_candle = body_ratio > 0.7
+bullish_candle = close > open
+bearish_candle = close < open
+
+// Enhanced volatility analysis (matching Python strategy)
+avg_volatility = ta.sma(volatility, 20)
+high_volatility = avg_volatility != 0 ? volatility > avg_volatility * 1.5 : false
+
+// =============================================================================
+// SIGNAL GENERATION (Exact match to Python PurePriceActionStrategy)
+// =============================================================================
+
+// Buy signal conditions (matching Python scoring system exactly)
+buy_score = 0
+buy_score := price_momentum > 0.5 ? buy_score + 2 : buy_score  // Positive momentum > 0.5%
+buy_score := bullish_breakout and close > resistance_level * 0.999 ? buy_score + 3 : buy_score  // Strong bullish breakout
+buy_score := price_position > 80 and price_momentum > 0 ? buy_score + 1 : buy_score  // Continued strength at top
+buy_score := price_position < 20 and price_momentum > 0 ? buy_score + 1 : buy_score  // Potential reversal at bottom
+buy_score := high_volatility and price_momentum > 0 ? buy_score + 1 : buy_score  // High volatility + positive momentum
+buy_score := high_volume and price_momentum > 0 ? buy_score + 1 : buy_score  // Volume confirmation
+buy_score := strong_candle and bullish_candle ? buy_score + 1 : buy_score  // Strong bullish candle
+
+// Sell signal conditions (matching Python scoring system exactly)
+sell_score = 0
+sell_score := price_momentum < -0.5 ? sell_score + 2 : sell_score  // Negative momentum < -0.5%
+sell_score := bearish_breakdown and close < support_level * 1.001 ? sell_score + 3 : sell_score  // Strong bearish breakdown
+sell_score := price_position > 80 and price_momentum < 0 ? sell_score + 1 : sell_score  // Potential reversal at top
+sell_score := price_position < 20 and price_momentum < 0 ? sell_score + 1 : sell_score  // Continued weakness at bottom
+sell_score := high_volatility and price_momentum < 0 ? sell_score + 1 : sell_score  // High volatility + negative momentum
+sell_score := high_volume and price_momentum < 0 ? sell_score + 1 : sell_score  // Volume confirmation
+sell_score := strong_candle and bearish_candle ? sell_score + 1 : sell_score  // Strong bearish candle
+
+// Final signals (exactly matching Python logic: score >= 4 AND score > opposite_score)
+buy_signal = buy_score >= 4 and buy_score > sell_score
+sell_signal = sell_score >= 4 and sell_score > buy_score
+hold_signal = not buy_signal and not sell_signal
+
+// =============================================================================
+// VISUALIZATION
+// =============================================================================
+
+// Support and Resistance Lines
+plot(show_support_resistance ? support_level : na, title="Support", color=color.rgb(0, 255, 0, 20), linewidth=2)
+plot(show_support_resistance ? resistance_level : na, title="Resistance", color=color.rgb(255, 0, 0, 20), linewidth=2)
+
+// Breakout Signals
+plotshape(show_breakout_signals and buy_signal, title="BUY Signal", location=location.belowbar, style=shape.triangleup, size=size.normal, color=color.rgb(0, 255, 0), text="BUY")
+plotshape(show_breakout_signals and sell_signal, title="SELL Signal", location=location.abovebar, style=shape.triangledown, size=size.normal, color=color.rgb(255, 0, 0), text="SELL")
+
+// Background color for price position
+bgcolor(price_position > 80 ? color.rgb(255, 0, 0, 90) : price_position < 20 ? color.rgb(0, 255, 0, 90) : na, title="Price Position")
+
+// =============================================================================
+// ENHANCED INFORMATION TABLE (Matching Python Strategy Output)
+// =============================================================================
+
+if show_momentum_info and barstate.islast
+    var table info_table = table.new(position.top_right, 2, 10, bgcolor=color.rgb(0, 0, 0, 80), border_width=1)
+    
+    table.cell(info_table, 0, 0, "Price Momentum", text_color=color.white, text_size=size.small)
+    table.cell(info_table, 1, 0, str.tostring(price_momentum, "#.##") + "%", text_color=price_momentum > 0 ? color.lime : color.red, text_size=size.small)
+    
+    table.cell(info_table, 0, 1, "Volatility", text_color=color.white, text_size=size.small)
+    table.cell(info_table, 1, 1, str.tostring(volatility, "#.##") + "%", text_color=color.yellow, text_size=size.small)
+    
+    table.cell(info_table, 0, 2, "Price Position", text_color=color.white, text_size=size.small)
+    table.cell(info_table, 1, 2, str.tostring(price_position, "#.#") + "%", text_color=color.aqua, text_size=size.small)
+    
+    table.cell(info_table, 0, 3, "Volume Ratio", text_color=color.white, text_size=size.small)
+    table.cell(info_table, 1, 3, str.tostring(volume_ratio, "#.##") + "x", text_color=volume_ratio > 1.5 ? color.orange : color.gray, text_size=size.small)
+    
+    table.cell(info_table, 0, 4, "High Volatility", text_color=color.white, text_size=size.small)
+    table.cell(info_table, 1, 4, high_volatility ? "YES" : "NO", text_color=high_volatility ? color.red : color.gray, text_size=size.small)
+    
+    table.cell(info_table, 0, 5, "Body Ratio", text_color=color.white, text_size=size.small)
+    table.cell(info_table, 1, 5, str.tostring(body_ratio, "#.##"), text_color=strong_candle ? color.orange : color.gray, text_size=size.small)
+    
+    table.cell(info_table, 0, 6, "Buy Score", text_color=color.white, text_size=size.small)
+    table.cell(info_table, 1, 6, str.tostring(buy_score), text_color=buy_score >= 4 ? color.lime : color.gray, text_size=size.small)
+    
+    table.cell(info_table, 0, 7, "Sell Score", text_color=color.white, text_size=size.small)
+    table.cell(info_table, 1, 7, str.tostring(sell_score), text_color=sell_score >= 4 ? color.red : color.gray, text_size=size.small)
+    
+    table.cell(info_table, 0, 8, "Signal", text_color=color.white, text_size=size.small)
+    signal_text = buy_signal ? "BUY" : sell_signal ? "SELL" : "HOLD"
+    signal_color = buy_signal ? color.lime : sell_signal ? color.red : color.yellow
+    table.cell(info_table, 1, 8, signal_text, text_color=signal_color, text_size=size.small)
+    
+    table.cell(info_table, 0, 9, "Current Price", text_color=color.white, text_size=size.small)
+    table.cell(info_table, 1, 9, str.tostring(close, "#.####"), text_color=color.white, text_size=size.small)
+
+// =============================================================================
+// ENHANCED ALERTS (Fixed for Pine Script compatibility)
+// =============================================================================
+
+alertcondition(buy_signal, title="Pure Price Action BUY", message="🟢 BUY Signal - Strong Bullish Price Action Detected\nCheck info table for detailed metrics")
+
+alertcondition(sell_signal, title="Pure Price Action SELL", message="🔴 SELL Signal - Strong Bearish Price Action Detected\nCheck info table for detailed metrics")
+
+alertcondition(bullish_breakout, title="Bullish Breakout", message="📈 Bullish Breakout Above Resistance Level")
+
+alertcondition(bearish_breakdown, title="Bearish Breakdown", message="📉 Bearish Breakdown Below Support Level")
+
+alertcondition(hold_signal, title="Pure Price Action HOLD", message="⚪ HOLD Signal - No Clear Price Action\nMonitor for developing signals")
