@@ -15,18 +15,18 @@ warnings.simplefilter(action='ignore', category=FutureWarning)
 try:
     from modules.config import (
         PRICE_ACTION_LOOKBACK,
-        BREAKOUT_THRESHOLD,
+        MOMENTUM_THRESHOLD,
         VOLATILITY_WINDOW,
         MOMENTUM_WINDOW,
-        SUPPORT_RESISTANCE_STRENGTH
+        VOLUME_THRESHOLD
     )
 except ImportError:
     # Fallback values for pure price action strategies
     PRICE_ACTION_LOOKBACK = 20
-    BREAKOUT_THRESHOLD = 0.02  # 2% breakout threshold
+    MOMENTUM_THRESHOLD = 0.01  # 1% momentum threshold
     VOLATILITY_WINDOW = 14
     MOMENTUM_WINDOW = 10
-    SUPPORT_RESISTANCE_STRENGTH = 3
+    VOLUME_THRESHOLD = 1.5
 
 
 class TradingStrategy:
@@ -94,36 +94,6 @@ class TradingStrategy:
         
         volatility = np.std(returns)
         return volatility
-    
-    def find_support_resistance(self, highs, lows, strength=3):
-        """Find support and resistance levels using price action"""
-        if len(highs) < strength * 2 + 1 or len(lows) < strength * 2 + 1:
-            return [], []
-        
-        resistance_levels = []
-        support_levels = []
-        
-        # Find resistance levels (local highs)
-        for i in range(strength, len(highs) - strength):
-            is_resistance = True
-            for j in range(i - strength, i + strength + 1):
-                if j != i and highs[j] >= highs[i]:
-                    is_resistance = False
-                    break
-            if is_resistance:
-                resistance_levels.append(highs[i])
-        
-        # Find support levels (local lows)
-        for i in range(strength, len(lows) - strength):
-            is_support = True
-            for j in range(i - strength, i + strength + 1):
-                if j != i and lows[j] <= lows[i]:
-                    is_support = False
-                    break
-            if is_support:
-                support_levels.append(lows[i])
-        
-        return resistance_levels, support_levels
     
     def detect_candlestick_patterns(self, ohlc_data):
         """Detect basic candlestick patterns using pure price action"""
@@ -202,150 +172,149 @@ class TradingStrategy:
 
 class PurePriceActionStrategy(TradingStrategy):
     """
-    Enhanced Zone-Based Pure Price Action Strategy:
+    Pure Price Action Strategy - Candlestick Pattern & Momentum Based:
     
     ==========================================
-    TRADING METHODOLOGY: ZONE FIRST, CONFIRMATION SECOND
+    TRADING METHODOLOGY: PATTERN + MOMENTUM + VOLUME
     ==========================================
     
-    STEP 1: IDENTIFY HIGH-QUALITY SUPPORT/RESISTANCE ZONES
-    - Uses historical price data to identify strong S/R levels
-    - Creates ZONES (not just lines) with upper/lower bounds
-    - Calculates zone strength based on:
-      * Number of touches/tests
-      * Time spent in zone
-      * Number of rejections
-      * Volume confirmation
-    - Only trades zones with strength ≥ 3 (minimum quality threshold)
+    This strategy focuses exclusively on pure price action without any support/resistance levels:
     
-    STEP 2: WAIT FOR PRICE TO ENTER STRONG ZONES
-    - Monitors price approaching high-strength zones
-    - Distinguishes between support zones and resistance zones
-    - Tracks whether price is within zone boundaries
+    STEP 1: CANDLESTICK PATTERN RECOGNITION
+    - Identifies high-probability reversal patterns (Pin Bars, Engulfing, Stars)
+    - Detects continuation patterns (Inside Bars, Outside Bars, Flags)
+    - Recognizes momentum patterns (Marubozu, Three Soldiers/Crows)
+    - Analyzes indecision patterns (Doji variations, Spinning Tops)
     
-    STEP 3: LOOK FOR PRICE ACTION CONFIRMATION PATTERNS
-    - Pin Bars (Hammer/Shooting Star): Strong rejection candles
-    - Engulfing Patterns: Momentum continuation signals
-    - Zone Rejections: Bounces from S/R with strong close
-    - Breakout Confirmations: Clean breaks with volume
-    - Double Top/Bottom: Multiple tests with confirmation
+    STEP 2: MOMENTUM ANALYSIS
+    - Calculates pure price momentum over multiple timeframes
+    - Identifies acceleration and deceleration phases
+    - Detects momentum divergences and confirmations
+    - Measures volatility expansion and contraction
     
-    STEP 4: GENERATE SIGNALS ONLY WHEN BOTH CONDITIONS MET
-    - Requires BOTH zone identification AND price action confirmation
-    - Uses scoring system (minimum 4/10 strength required)
-    - Provides detailed signal reasoning and strength
-    - No signals in weak zones or without clear patterns
+    STEP 3: VOLUME CONFIRMATION
+    - Confirms patterns with volume analysis
+    - Identifies volume spikes during key moves
+    - Detects volume divergences
+    - Uses volume-weighted momentum calculations
+    
+    STEP 4: SIGNAL GENERATION
+    - Combines pattern strength with momentum direction
+    - Requires multiple confirmations for signal generation
+    - Uses dynamic scoring system (minimum 4/10 strength)
+    - Provides detailed reasoning for each signal
     
     ==========================================
     SIGNAL TYPES & CONDITIONS
     ==========================================
     
     🟢 BUY SIGNALS:
-    1. SUPPORT ZONE REJECTION (Highest Priority)
-       - Price enters strong support zone
-       - Shows bullish rejection pattern (pin bar, engulfing, etc.)
-       - Closes above zone with strength
+    1. BULLISH REVERSAL PATTERNS
+       - Strong bullish pin bars (hammer, dragonfly doji)
+       - Bullish engulfing patterns with volume
+       - Morning star formations
+       - Three white soldiers momentum
     
-    2. RESISTANCE BREAKOUT
-       - Price breaks above strong resistance zone
-       - Confirmed with volume and strong candle
-       - Momentum continuation above breakout level
+    2. BULLISH CONTINUATION PATTERNS
+       - Bullish flags after momentum moves
+       - Inside bar breakouts to upside
+       - Outside bars with bullish close
+       - Marubozu candles in uptrend
     
-    3. MOMENTUM + ZONE CONFIRMATION
-       - Strong positive momentum near support
-       - Continuation after support bounce
+    3. MOMENTUM CONFIRMATION
+       - Strong positive momentum (>1%)
+       - Momentum acceleration
+       - Volume-confirmed moves
+       - Volatility expansion on bullish moves
     
     🔴 SELL SIGNALS:
-    1. RESISTANCE ZONE REJECTION (Highest Priority)
-       - Price enters strong resistance zone
-       - Shows bearish rejection pattern (shooting star, engulfing, etc.)
-       - Closes below zone with strength
+    1. BEARISH REVERSAL PATTERNS
+       - Strong bearish pin bars (shooting star, gravestone doji)
+       - Bearish engulfing patterns with volume
+       - Evening star formations
+       - Three black crows momentum
     
-    2. SUPPORT BREAKDOWN
-       - Price breaks below strong support zone
-       - Confirmed with volume and strong candle
-       - Momentum continuation below breakdown level
+    2. BEARISH CONTINUATION PATTERNS
+       - Bearish flags after momentum moves
+       - Inside bar breakouts to downside
+       - Outside bars with bearish close
+       - Bearish marubozu in downtrend
     
-    3. MOMENTUM + ZONE CONFIRMATION
-       - Strong negative momentum near resistance
-       - Continuation after resistance rejection
+    3. MOMENTUM CONFIRMATION
+       - Strong negative momentum (<-1%)
+       - Momentum acceleration to downside
+       - Volume-confirmed moves
+       - Volatility expansion on bearish moves
     
     ⚪ HOLD SIGNALS:
-    - Price not in any strong zones
-    - Weak zones (strength < 3)
-    - No clear price action confirmation
-    - Conflicting signals
+    - Weak or conflicting patterns
+    - Low momentum periods
+    - Indecision patterns without clear direction
     - Insufficient signal strength (< 4/10)
     
     ==========================================
-    BENEFITS OF THIS APPROACH
+    BENEFITS OF PURE PRICE ACTION APPROACH
     ==========================================
     
-    ✅ Higher Probability Trades:
-    - Only trades at proven S/R levels with multiple confirmations
-    - Reduces false signals by requiring zone + pattern confirmation
+    ✅ Universal Application:
+    - Works on any timeframe and market condition
+    - No dependency on historical levels
+    - Adapts to changing market dynamics
     
-    ✅ Better Risk Management:
-    - Clear entry points at logical S/R levels
-    - Natural stop-loss placement (beyond zones)
-    - Defined reward-to-risk ratios
+    ✅ Real-Time Responsiveness:
+    - Immediate pattern recognition
+    - Quick momentum detection
+    - Responsive to market sentiment changes
     
-    ✅ Market Structure Focus:
-    - Trades with market structure, not against it
-    - Recognizes market memory at key levels
-    - Adapts to changing market conditions
+    ✅ Clean Signal Generation:
+    - Clear entry/exit criteria based on patterns
+    - Objective pattern recognition algorithms
+    - Momentum-based confirmation system
     
-    ✅ Reduced Noise:
-    - Filters out weak signals in no-man's land
-    - Focuses only on high-conviction setups
-    - Provides clear reasoning for each signal
-    
-    Mathematical Components:
-    - Zone strength calculation using historical interactions
-    - Price action pattern recognition algorithms
-    - Momentum and volatility analysis
-    - Volume confirmation when available
-    - Multi-timeframe support/resistance analysis
+    ✅ Risk Management:
+    - Pattern-based stop loss placement
+    - Dynamic position sizing based on volatility
+    - Clear reward-to-risk ratios per pattern type
     """
     
     def __init__(self, 
                  lookback_period=20,        # Lookback period for analysis
-                 breakout_threshold=0.02,   # 2% breakout threshold
+                 momentum_threshold=0.01,   # 1% momentum threshold for signals
                  volatility_window=14,      # Volatility calculation window
                  momentum_window=10,        # Momentum calculation window
-                 sr_strength=3):            # Support/resistance strength
+                 volume_threshold=1.5):     # Volume spike threshold
         
         super().__init__("PurePriceActionStrategy")
         
         # Parameter validation
         if lookback_period <= 0:
             raise ValueError("Lookback period must be positive")
-        if breakout_threshold <= 0:
-            raise ValueError("Breakout threshold must be positive") 
+        if momentum_threshold <= 0:
+            raise ValueError("Momentum threshold must be positive") 
         if volatility_window <= 0:
             raise ValueError("Volatility window must be positive")
         if momentum_window <= 0:
             raise ValueError("Momentum window must be positive")
-        if sr_strength <= 0:
-            raise ValueError("Support/resistance strength must be positive")
+        if volume_threshold <= 0:
+            raise ValueError("Volume threshold must be positive")
         
         # Store parameters
         self.lookback_period = lookback_period
-        self.breakout_threshold = breakout_threshold
+        self.momentum_threshold = momentum_threshold
         self.volatility_window = volatility_window
         self.momentum_window = momentum_window
-        self.sr_strength = sr_strength
+        self.volume_threshold = volume_threshold
         self._warning_count = 0
         
         logger.info(f"{self.name} initialized with:")
         logger.info(f"  Lookback Period: {lookback_period} candles")
-        logger.info(f"  Breakout Threshold: {breakout_threshold*100}%")
+        logger.info(f"  Momentum Threshold: {momentum_threshold*100}%")
         logger.info(f"  Volatility Window: {volatility_window} periods")
         logger.info(f"  Momentum Window: {momentum_window} periods")
-        logger.info(f"  Support/Resistance Strength: {sr_strength}")
+        logger.info(f"  Volume Threshold: {volume_threshold}x average")
     
     def add_indicators(self, df):
-        """Add pure price action calculations"""
+        """Add pure price action calculations without support/resistance dependencies"""
         try:
             # Ensure sufficient data
             min_required = max(self.lookback_period, self.volatility_window, self.momentum_window) + 5
@@ -366,168 +335,165 @@ class PurePriceActionStrategy(TradingStrategy):
                     df[col] = df[col].replace(0, np.nan)
                     df[col] = df[col].interpolate(method='linear').bfill().ffill()
             
-            # Calculate price momentum
+            # === PURE MOMENTUM CALCULATIONS ===
+            
+            # Short-term momentum (fast signals)
+            df['momentum_fast'] = df['close'].pct_change(periods=self.momentum_window//2)
+            
+            # Medium-term momentum (trend signals)
             df['price_momentum'] = df['close'].pct_change(periods=self.momentum_window)
             
-            # Calculate volatility using rolling standard deviation
+            # Long-term momentum (trend confirmation)
+            df['momentum_slow'] = df['close'].pct_change(periods=self.momentum_window*2)
+            
+            # Momentum acceleration (change in momentum)
+            df['momentum_acceleration'] = df['price_momentum'].diff()
+            
+            # === VOLATILITY ANALYSIS ===
+            
+            # True Range for volatility
+            df['high_low'] = df['high'] - df['low']
+            df['high_close'] = abs(df['high'] - df['close'].shift(1))
+            df['low_close'] = abs(df['low'] - df['close'].shift(1))
+            df['true_range'] = df[['high_low', 'high_close', 'low_close']].max(axis=1)
+            
+            # Average True Range (ATR) for volatility measurement
+            df['atr'] = df['true_range'].rolling(window=self.volatility_window).mean()
+            
+            # Price returns and volatility
             df['returns'] = df['close'].pct_change()
             df['volatility'] = df['returns'].rolling(window=self.volatility_window).std()
             
-            # Calculate price range
-            df['price_range'] = df['high'] - df['low']
-            df['avg_range'] = df['price_range'].rolling(window=self.lookback_period).mean()
+            # Volatility expansion/contraction
+            df['volatility_ratio'] = df['volatility'] / df['volatility'].rolling(window=self.lookback_period).mean()
             
-            # Calculate support and resistance levels
-            df['resistance'] = df['high'].rolling(window=self.lookback_period).max()
-            df['support'] = df['low'].rolling(window=self.lookback_period).min()
+            # === CANDLESTICK BODY ANALYSIS ===
             
-            # Distance from support/resistance (with division by zero protection)
-            df['dist_from_resistance'] = np.where(
-                df['close'] != 0, 
-                (df['resistance'] - df['close']) / df['close'], 
-                0
-            )
-            df['dist_from_support'] = np.where(
-                df['close'] != 0,
-                (df['close'] - df['support']) / df['close'],
-                0
-            )
-            
-            # Breakout detection
-            df['near_resistance'] = df['dist_from_resistance'] < self.breakout_threshold
-            df['near_support'] = df['dist_from_support'] < self.breakout_threshold
-            
-            # Price position within range (with division by zero protection)
-            range_size = df['resistance'] - df['support']
-            df['price_position'] = np.where(
-                range_size != 0,
-                (df['close'] - df['support']) / range_size,
-                0.5  # Default to middle position if no range
-            )
-            
-            # Volume-price analysis (if volume available)
-            if 'volume' in df.columns:
-                df['avg_volume'] = df['volume'].rolling(window=self.lookback_period).mean()
-                # Protect against division by zero for volume ratio
-                df['volume_ratio'] = np.where(
-                    df['avg_volume'] != 0,
-                    df['volume'] / df['avg_volume'],
-                    1.0  # Default to 1.0 if no average volume
-                )
-                df['price_volume_momentum'] = df['price_momentum'] * df['volume_ratio']
-            
-            # Candlestick body analysis
+            # Basic candle properties
             df['body_size'] = abs(df['close'] - df['open'])
             df['upper_shadow'] = df['high'] - np.maximum(df['open'], df['close'])
             df['lower_shadow'] = np.minimum(df['open'], df['close']) - df['low']
             df['total_range'] = df['high'] - df['low']
             
-            # Relative body size (with division by zero protection)
+            # Relative measurements (protect against division by zero)
             df['body_ratio'] = np.where(
                 df['total_range'] != 0,
                 df['body_size'] / df['total_range'],
-                0.5  # Default to 0.5 if no range
+                0.5
             )
             
-            # Enhanced Support/Resistance Zone Analysis
+            df['upper_shadow_ratio'] = np.where(
+                df['total_range'] != 0,
+                df['upper_shadow'] / df['total_range'],
+                0.0
+            )
             
-            # Calculate more precise support/resistance levels using pivots
-            df['pivot_high'] = df['high'].rolling(window=5, center=True).max() == df['high']
-            df['pivot_low'] = df['low'].rolling(window=5, center=True).min() == df['low']
+            df['lower_shadow_ratio'] = np.where(
+                df['total_range'] != 0,
+                df['lower_shadow'] / df['total_range'],
+                0.0
+            )
             
-            # Dynamic support/resistance based on recent price action
-            df['dynamic_resistance'] = df['high'].rolling(window=self.lookback_period//2).max()
-            df['dynamic_support'] = df['low'].rolling(window=self.lookback_period//2).min()
+            # Candle direction
+            df['is_bullish'] = df['close'] > df['open']
+            df['is_bearish'] = df['close'] < df['open']
+            df['is_doji'] = df['body_ratio'] < 0.1  # Very small body
             
-            # Create Support/Resistance ZONES (not just lines)
-            zone_width = 0.005  # 0.5% zone width
+            # === VOLUME ANALYSIS (if available) ===
             
-            # Resistance Zone (upper and lower bounds)
-            df['resistance_zone_upper'] = df['resistance'] * (1 + zone_width)
-            df['resistance_zone_lower'] = df['resistance'] * (1 - zone_width)
-            
-            # Support Zone (upper and lower bounds)
-            df['support_zone_upper'] = df['support'] * (1 + zone_width)
-            df['support_zone_lower'] = df['support'] * (1 - zone_width)
-            
-            # Zone strength based on number of touches and time spent
-            df['resistance_touches'] = 0
-            df['support_touches'] = 0
-            df['resistance_zone_strength'] = 0
-            df['support_zone_strength'] = 0
-            
-            for i in range(self.lookback_period, len(df)):
-                # Count resistance zone interactions
-                resistance_level = df.iloc[i]['resistance']
-                if not pd.isna(resistance_level) and resistance_level > 0:
-                    recent_highs = df['high'].iloc[i-self.lookback_period:i]
-                    recent_lows = df['low'].iloc[i-self.lookback_period:i]
-                    recent_closes = df['close'].iloc[i-self.lookback_period:i]
-                    
-                    # Count touches (price came within zone)
-                    zone_upper = resistance_level * (1 + zone_width)
-                    zone_lower = resistance_level * (1 - zone_width)
-                    
-                    touches = ((recent_highs >= zone_lower) & (recent_highs <= zone_upper)).sum()
-                    df.at[i, 'resistance_touches'] = touches
-                    
-                    # Calculate zone strength (touches + time spent in zone)
-                    time_in_zone = ((recent_closes >= zone_lower) & (recent_closes <= zone_upper)).sum()
-                    rejections = ((recent_highs >= zone_lower) & (recent_closes < zone_lower)).sum()
-                    
-                    df.at[i, 'resistance_zone_strength'] = touches + time_in_zone + (rejections * 2)
+            if 'volume' in df.columns:
+                # Volume moving averages
+                df['avg_volume'] = df['volume'].rolling(window=self.lookback_period).mean()
                 
-                # Count support zone interactions
-                support_level = df.iloc[i]['support']
-                if not pd.isna(support_level) and support_level > 0:
-                    recent_highs = df['high'].iloc[i-self.lookback_period:i]
-                    recent_lows = df['low'].iloc[i-self.lookback_period:i]
-                    recent_closes = df['close'].iloc[i-self.lookback_period:i]
-                    
-                    # Count touches (price came within zone)
-                    zone_upper = support_level * (1 + zone_width)
-                    zone_lower = support_level * (1 - zone_width)
-                    
-                    touches = ((recent_lows >= zone_lower) & (recent_lows <= zone_upper)).sum()
-                    df.at[i, 'support_touches'] = touches
-                    
-                    # Calculate zone strength
-                    time_in_zone = ((recent_closes >= zone_lower) & (recent_closes <= zone_upper)).sum()
-                    rejections = ((recent_lows <= zone_upper) & (recent_closes > zone_upper)).sum()
-                    
-                    df.at[i, 'support_zone_strength'] = touches + time_in_zone + (rejections * 2)
+                # Volume ratio (current vs average)
+                df['volume_ratio'] = np.where(
+                    df['avg_volume'] != 0,
+                    df['volume'] / df['avg_volume'],
+                    1.0
+                )
+                
+                # Volume-weighted momentum
+                df['volume_momentum'] = df['price_momentum'] * df['volume_ratio']
+                
+                # Volume spikes
+                df['volume_spike'] = df['volume_ratio'] > self.volume_threshold
+                
+            else:
+                # Default volume values if volume data not available
+                df['volume_ratio'] = 1.0
+                df['volume_momentum'] = df['price_momentum']
+                df['volume_spike'] = False
             
-            # Zone interaction detection
-            df['in_resistance_zone'] = ((df['close'] >= df['resistance_zone_lower']) & 
-                                      (df['close'] <= df['resistance_zone_upper']))
-            df['in_support_zone'] = ((df['close'] >= df['support_zone_lower']) & 
-                                   (df['close'] <= df['support_zone_upper']))
+            # === PRICE PATTERN ANALYSIS ===
             
-            # Previous candle analysis for price action patterns
+            # Moving averages for trend context
+            df['ma_fast'] = df['close'].rolling(window=self.momentum_window).mean()
+            df['ma_slow'] = df['close'].rolling(window=self.momentum_window*2).mean()
+            
+            # Price position relative to moving averages
+            df['above_ma_fast'] = df['close'] > df['ma_fast']
+            df['above_ma_slow'] = df['close'] > df['ma_slow']
+            
+            # Trend direction
+            df['trend_bullish'] = (df['ma_fast'] > df['ma_slow']) & df['above_ma_fast']
+            df['trend_bearish'] = (df['ma_fast'] < df['ma_slow']) & ~df['above_ma_fast']
+            
+            # === MOMENTUM SIGNALS ===
+            
+            # Strong momentum conditions
+            df['strong_bullish_momentum'] = (
+                (df['price_momentum'] > self.momentum_threshold) &
+                (df['momentum_acceleration'] > 0) &
+                df['is_bullish']
+            )
+            
+            df['strong_bearish_momentum'] = (
+                (df['price_momentum'] < -self.momentum_threshold) &
+                (df['momentum_acceleration'] < 0) &
+                df['is_bearish']
+            )
+            
+            # Momentum divergence detection
+            df['momentum_bullish_div'] = (
+                (df['close'] < df['close'].shift(1)) &
+                (df['price_momentum'] > df['price_momentum'].shift(1))
+            )
+            
+            df['momentum_bearish_div'] = (
+                (df['close'] > df['close'].shift(1)) &
+                (df['price_momentum'] < df['price_momentum'].shift(1))
+            )
+            
+            # === PREVIOUS CANDLE ANALYSIS ===
+            
+            # Previous candle data for pattern recognition
             df['prev_close'] = df['close'].shift(1)
             df['prev_high'] = df['high'].shift(1)
             df['prev_low'] = df['low'].shift(1)
             df['prev_open'] = df['open'].shift(1)
+            df['prev_body_size'] = df['body_size'].shift(1)
+            df['prev_is_bullish'] = df['is_bullish'].shift(1)
+            df['prev_is_bearish'] = df['is_bearish'].shift(1)
             
-            # Price action confirmation patterns
+            # Add candlestick pattern recognition
             df = self._add_price_action_patterns(df)
             
-            # Generate signals based on pure price action
-            self._generate_price_action_signals(df)
+            # Generate pure price action signals
+            self._generate_pure_price_action_signals(df)
             
             return df
             
         except Exception as e:
-            logger.error(f"Error adding price action calculations: {e}")
+            logger.error(f"Error adding pure price action calculations: {e}")
             return df
     
-    def _generate_price_action_signals(self, df):
+    def _generate_pure_price_action_signals(self, df):
         """
-        Generate signals using Zone-First, Confirmation-Second approach:
-        1. Identify strong support/resistance zones
-        2. Wait for price to enter these zones
-        3. Look for price action confirmation patterns
-        4. Generate signals only when both conditions are met
+        Generate signals using Pure Price Action approach:
+        1. Identify strong candlestick patterns
+        2. Confirm with momentum analysis
+        3. Validate with volume (if available)
+        4. Generate signals based on pattern + momentum + volume confluence
         """
         try:
             # Initialize signal columns
@@ -544,191 +510,225 @@ class PurePriceActionStrategy(TradingStrategy):
                 # Skip if critical data is missing
                 critical_values = [
                     current.get('close', 0),
-                    current.get('resistance', 0),
-                    current.get('support', 0),
-                    current.get('resistance_zone_strength', 0),
-                    current.get('support_zone_strength', 0)
+                    current.get('price_momentum', 0),
+                    current.get('volatility', 0)
                 ]
                 
-                if any(pd.isna(val) or (isinstance(val, (int, float)) and val <= 0 and val != 0) for val in critical_values[:3]):
+                if any(pd.isna(val) for val in critical_values):
                     continue
                 
-                # STEP 1: ZONE ANALYSIS - Identify high-quality zones
-                resistance_zone_strength = current.get('resistance_zone_strength', 0)
-                support_zone_strength = current.get('support_zone_strength', 0)
-                
-                # Minimum zone strength required for trading (zones with at least 3 touches/interactions)
-                min_zone_strength = 3
-                
-                # Check if we're in a strong zone
-                in_strong_resistance_zone = (current.get('in_resistance_zone', False) and 
-                                           resistance_zone_strength >= min_zone_strength)
-                in_strong_support_zone = (current.get('in_support_zone', False) and 
-                                        support_zone_strength >= min_zone_strength)
-                
-                # STEP 2: PRICE ACTION CONFIRMATION - Look for confirmation patterns
+                # Initialize scoring
                 buy_score = 0
                 sell_score = 0
                 signal_reasons = []
+                
+                # Current price action data
+                close_price = current.get('close', 0)
+                momentum = current.get('price_momentum', 0)
+                momentum_fast = current.get('momentum_fast', 0)
+                momentum_slow = current.get('momentum_slow', 0)
+                momentum_accel = current.get('momentum_acceleration', 0)
+                volatility_ratio = current.get('volatility_ratio', 1.0)
+                volume_ratio = current.get('volume_ratio', 1.0)
+                volume_spike = current.get('volume_spike', False)
+                
+                # Trend context
+                trend_bullish = current.get('trend_bullish', False)
+                trend_bearish = current.get('trend_bearish', False)
                 
                 # =========================
                 # BUY SIGNAL CONDITIONS
                 # =========================
                 
-                # CONDITION 1: SUPPORT ZONE REJECTION (Highest Priority)
-                if in_strong_support_zone:
-                    # Comprehensive bullish reversal patterns at support
-                    reversal_patterns = [
-                        ('Strong Bullish Rejection', current.get('bullish_rejection', False), 5),
-                        ('Bullish Pin Bar (Hammer)', current.get('pin_bar_bullish', False), 4),
-                        ('Bullish Engulfing', current.get('engulfing_bullish', False), 4),
-                        ('Morning Star', current.get('morning_star', False), 5),
-                        ('Tweezer Bottom', current.get('tweezer_bottom', False), 4),
-                        ('Dragonfly Doji', current.get('dragonfly_doji', False), 3),
-                        ('Three White Soldiers', current.get('three_white_soldiers', False), 5),
-                        ('Bullish Marubozu', current.get('marubozu_bullish', False), 4)
-                    ]
-                    
-                    for pattern_name, pattern_detected, pattern_score in reversal_patterns:
-                        if pattern_detected:
-                            buy_score += pattern_score
-                            signal_reasons.append(f"{pattern_name} at Support Zone (Strength: {support_zone_strength})")
-                            break  # Use only the first detected pattern to avoid double-counting
-                    
-                    # Additional support zone confirmations
-                    if current.get('spinning_top', False):
-                        buy_score += 2
-                        signal_reasons.append(f"Bullish Spinning Top at Support (Strength: {support_zone_strength})")
-                
-                # CONDITION 2: RESISTANCE ZONE BREAKOUT
-                resistance = current.get('resistance', 0)
-                if resistance > 0:
-                    # Comprehensive bullish breakout patterns
-                    breakout_patterns = [
-                        ('Strong Resistance Breakout', current.get('bullish_breakout', False), 5),
-                        ('Bullish Flag Breakout', current.get('bullish_flag', False), 5),
-                        ('Bullish Pennant Breakout', current.get('bullish_pennant', False), 5),
-                        ('Bullish Marubozu Breakout', current.get('marubozu_bullish', False), 4),
-                        ('Three White Soldiers Breakout', current.get('three_white_soldiers', False), 5)
-                    ]
-                    
-                    for pattern_name, pattern_detected, pattern_score in breakout_patterns:
-                        if pattern_detected:
-                            buy_score += pattern_score
-                            signal_reasons.append(f"{pattern_name} (Level: {resistance:.6f})")
-                            break
-                    
-                    # Volume-confirmed breakout
-                    if (current.get('close', 0) > resistance * 1.003 and  # Clear break
-                        current.get('close', 0) > current.get('open', 0) and  # Green candle
-                        current.get('volume_ratio', 1.0) > 1.5):  # High volume
-                        buy_score += 4
-                        signal_reasons.append(f"Volume-Confirmed Resistance Break (Level: {resistance:.6f})")
-                
-                # CONDITION 3: TREND CONTINUATION PATTERNS
-                continuation_patterns = [
-                    ('Inside Bar Breakout', current.get('inside_bar', False) and prev.get('bullish_breakout', False), 3),
-                    ('Outside Bar Bullish', current.get('outside_bar', False) and current.get('close', 0) > current.get('open', 0), 3)
+                # CONDITION 1: STRONG BULLISH REVERSAL PATTERNS
+                bullish_reversal_patterns = [
+                    ('Bullish Pin Bar (Hammer)', current.get('pin_bar_bullish', False), 4),
+                    ('Bullish Engulfing', current.get('engulfing_bullish', False), 5),
+                    ('Morning Star', current.get('morning_star', False), 5),
+                    ('Dragonfly Doji', current.get('dragonfly_doji', False), 3),
+                    ('Tweezer Bottom', current.get('tweezer_bottom', False), 4),
+                    ('Three White Soldiers', current.get('three_white_soldiers', False), 5),
+                    ('Bullish Marubozu', current.get('marubozu_bullish', False), 4)
                 ]
                 
-                for pattern_name, pattern_detected, pattern_score in continuation_patterns:
+                for pattern_name, pattern_detected, base_score in bullish_reversal_patterns:
                     if pattern_detected:
-                        buy_score += pattern_score
+                        score = base_score
+                        
+                        # Boost score with volume confirmation
+                        if volume_spike:
+                            score += 2
+                            pattern_name += " + Volume Spike"
+                        
+                        # Boost score with volatility expansion
+                        if volatility_ratio > 1.2:
+                            score += 1
+                            pattern_name += " + Vol Expansion"
+                        
+                        buy_score += score
+                        signal_reasons.append(pattern_name)
+                        break  # Use only first detected reversal pattern
+                
+                # CONDITION 2: STRONG BULLISH CONTINUATION PATTERNS
+                bullish_continuation_patterns = [
+                    ('Bullish Flag', current.get('bullish_flag', False), 4),
+                    ('Bullish Pennant', current.get('bullish_pennant', False), 4),
+                    ('Inside Bar Bullish Breakout', current.get('inside_bar', False) and 
+                     current.get('close', 0) > current.get('open', 0) and momentum > 0, 3),
+                    ('Outside Bar Bullish', current.get('outside_bar', False) and 
+                     current.get('close', 0) > current.get('open', 0), 3)
+                ]
+                
+                for pattern_name, pattern_detected, base_score in bullish_continuation_patterns:
+                    if pattern_detected:
+                        score = base_score
+                        
+                        # Require trend alignment for continuation patterns
+                        if trend_bullish:
+                            score += 2
+                            pattern_name += " + Bullish Trend"
+                        
+                        # Volume confirmation
+                        if volume_spike:
+                            score += 1
+                            pattern_name += " + Volume"
+                        
+                        buy_score += score
                         signal_reasons.append(pattern_name)
                 
-                # CONDITION 3: MOMENTUM + ZONE CONFIRMATION
-                momentum = current.get('price_momentum', 0)
-                if not pd.isna(momentum) and momentum > 0.008:  # Strong positive momentum (0.8%+)
-                    # Momentum confirmation near support
-                    if current.get('dist_from_support', 1.0) < 0.02:  # Within 2% of support
-                        buy_score += 2
-                        signal_reasons.append(f"Strong Momentum near Support ({momentum*100:.2f}%)")
-                    
-                    # Momentum continuation after support bounce
-                    elif (prev.get('in_support_zone', False) and 
-                          not current.get('in_support_zone', False) and
-                          current.get('close', 0) > prev.get('close', 0)):
-                        buy_score += 3
-                        signal_reasons.append(f"Momentum Continuation after Support Bounce ({momentum*100:.2f}%)")
+                # CONDITION 3: STRONG MOMENTUM SIGNALS
+                if not pd.isna(momentum) and not pd.isna(momentum_accel):
+                    # Strong positive momentum
+                    if momentum > self.momentum_threshold:
+                        momentum_score = 2
+                        momentum_reason = f"Strong Bullish Momentum ({momentum*100:.2f}%)"
+                        
+                        # Momentum acceleration
+                        if momentum_accel > 0:
+                            momentum_score += 2
+                            momentum_reason += " + Acceleration"
+                        
+                        # Multi-timeframe momentum alignment
+                        if (not pd.isna(momentum_fast) and not pd.isna(momentum_slow) and
+                            momentum_fast > 0 and momentum_slow > 0):
+                            momentum_score += 2
+                            momentum_reason += " + Multi-TF Alignment"
+                        
+                        # Volume-weighted momentum
+                        if volume_ratio > self.volume_threshold:
+                            momentum_score += 2
+                            momentum_reason += " + Volume Confirmation"
+                        
+                        buy_score += momentum_score
+                        signal_reasons.append(momentum_reason)
+                
+                # CONDITION 4: MOMENTUM DIVERGENCE BULLISH
+                if current.get('momentum_bullish_div', False):
+                    buy_score += 3
+                    signal_reasons.append("Bullish Momentum Divergence")
+                
+                # CONDITION 5: VOLATILITY EXPANSION ON BULLISH MOVES
+                if (volatility_ratio > 1.3 and momentum > 0 and 
+                    current.get('close', 0) > current.get('open', 0)):
+                    buy_score += 2
+                    signal_reasons.append(f"Volatility Expansion on Bullish Move ({volatility_ratio:.1f}x)")
                 
                 # =========================
                 # SELL SIGNAL CONDITIONS  
                 # =========================
                 
-                # CONDITION 1: RESISTANCE ZONE REJECTION (Highest Priority)
-                if in_strong_resistance_zone:
-                    # Comprehensive bearish reversal patterns at resistance
-                    reversal_patterns = [
-                        ('Strong Bearish Rejection', current.get('bearish_rejection', False), 5),
-                        ('Bearish Pin Bar (Shooting Star)', current.get('pin_bar_bearish', False), 4),
-                        ('Bearish Engulfing', current.get('engulfing_bearish', False), 4),
-                        ('Evening Star', current.get('evening_star', False), 5),
-                        ('Tweezer Top', current.get('tweezer_top', False), 4),
-                        ('Gravestone Doji', current.get('gravestone_doji', False), 3),
-                        ('Three Black Crows', current.get('three_black_crows', False), 5),
-                        ('Bearish Marubozu', current.get('marubozu_bearish', False), 4)
-                    ]
-                    
-                    for pattern_name, pattern_detected, pattern_score in reversal_patterns:
-                        if pattern_detected:
-                            sell_score += pattern_score
-                            signal_reasons.append(f"{pattern_name} at Resistance Zone (Strength: {resistance_zone_strength})")
-                            break  # Use only the first detected pattern to avoid double-counting
-                    
-                    # Additional resistance zone confirmations
-                    if current.get('spinning_bottom', False):
-                        sell_score += 2
-                        signal_reasons.append(f"Bearish Spinning Bottom at Resistance (Strength: {resistance_zone_strength})")
-                
-                # CONDITION 2: SUPPORT ZONE BREAKDOWN
-                support = current.get('support', 0)
-                if support > 0:
-                    # Comprehensive bearish breakdown patterns
-                    breakdown_patterns = [
-                        ('Strong Support Breakdown', current.get('bearish_breakout', False), 5),
-                        ('Bearish Flag Breakdown', current.get('bearish_flag', False), 5),
-                        ('Bearish Pennant Breakdown', current.get('bearish_pennant', False), 5),
-                        ('Bearish Marubozu Breakdown', current.get('marubozu_bearish', False), 4),
-                        ('Three Black Crows Breakdown', current.get('three_black_crows', False), 5)
-                    ]
-                    
-                    for pattern_name, pattern_detected, pattern_score in breakdown_patterns:
-                        if pattern_detected:
-                            sell_score += pattern_score
-                            signal_reasons.append(f"{pattern_name} (Level: {support:.6f})")
-                            break
-                    
-                    # Volume-confirmed breakdown
-                    if (current.get('close', 0) < support * 0.997 and  # Clear break
-                        current.get('close', 0) < current.get('open', 0) and  # Red candle
-                        current.get('volume_ratio', 1.0) > 1.5):  # High volume
-                        sell_score += 4
-                        signal_reasons.append(f"Volume-Confirmed Support Break (Level: {support:.6f})")
-                
-                # CONDITION 3: TREND CONTINUATION PATTERNS
-                continuation_patterns = [
-                    ('Inside Bar Breakdown', current.get('inside_bar', False) and prev.get('bearish_breakout', False), 3),
-                    ('Outside Bar Bearish', current.get('outside_bar', False) and current.get('close', 0) < current.get('open', 0), 3)
+                # CONDITION 1: STRONG BEARISH REVERSAL PATTERNS
+                bearish_reversal_patterns = [
+                    ('Bearish Pin Bar (Shooting Star)', current.get('pin_bar_bearish', False), 4),
+                    ('Bearish Engulfing', current.get('engulfing_bearish', False), 5),
+                    ('Evening Star', current.get('evening_star', False), 5),
+                    ('Gravestone Doji', current.get('gravestone_doji', False), 3),
+                    ('Tweezer Top', current.get('tweezer_top', False), 4),
+                    ('Three Black Crows', current.get('three_black_crows', False), 5),
+                    ('Bearish Marubozu', current.get('marubozu_bearish', False), 4)
                 ]
                 
-                for pattern_name, pattern_detected, pattern_score in continuation_patterns:
+                for pattern_name, pattern_detected, base_score in bearish_reversal_patterns:
                     if pattern_detected:
-                        sell_score += pattern_score
+                        score = base_score
+                        
+                        # Boost score with volume confirmation
+                        if volume_spike:
+                            score += 2
+                            pattern_name += " + Volume Spike"
+                        
+                        # Boost score with volatility expansion
+                        if volatility_ratio > 1.2:
+                            score += 1
+                            pattern_name += " + Vol Expansion"
+                        
+                        sell_score += score
+                        signal_reasons.append(pattern_name)
+                        break  # Use only first detected reversal pattern
+                
+                # CONDITION 2: STRONG BEARISH CONTINUATION PATTERNS
+                bearish_continuation_patterns = [
+                    ('Bearish Flag', current.get('bearish_flag', False), 4),
+                    ('Bearish Pennant', current.get('bearish_pennant', False), 4),
+                    ('Inside Bar Bearish Breakout', current.get('inside_bar', False) and 
+                     current.get('close', 0) < current.get('open', 0) and momentum < 0, 3),
+                    ('Outside Bar Bearish', current.get('outside_bar', False) and 
+                     current.get('close', 0) < current.get('open', 0), 3)
+                ]
+                
+                for pattern_name, pattern_detected, base_score in bearish_continuation_patterns:
+                    if pattern_detected:
+                        score = base_score
+                        
+                        # Require trend alignment for continuation patterns
+                        if trend_bearish:
+                            score += 2
+                            pattern_name += " + Bearish Trend"
+                        
+                        # Volume confirmation
+                        if volume_spike:
+                            score += 1
+                            pattern_name += " + Volume"
+                        
+                        sell_score += score
                         signal_reasons.append(pattern_name)
                 
-                # CONDITION 3: MOMENTUM + ZONE CONFIRMATION
-                if not pd.isna(momentum) and momentum < -0.008:  # Strong negative momentum (-0.8%+)
-                    # Momentum confirmation near resistance
-                    if current.get('dist_from_resistance', 1.0) < 0.02:  # Within 2% of resistance
-                        sell_score += 2
-                        signal_reasons.append(f"Strong Negative Momentum near Resistance ({momentum*100:.2f}%)")
-                    
-                    # Momentum continuation after resistance rejection
-                    elif (prev.get('in_resistance_zone', False) and 
-                          not current.get('in_resistance_zone', False) and
-                          current.get('close', 0) < prev.get('close', 0)):
-                        sell_score += 3
-                        signal_reasons.append(f"Momentum Continuation after Resistance Rejection ({momentum*100:.2f}%)")
+                # CONDITION 3: STRONG MOMENTUM SIGNALS
+                if not pd.isna(momentum) and not pd.isna(momentum_accel):
+                    # Strong negative momentum
+                    if momentum < -self.momentum_threshold:
+                        momentum_score = 2
+                        momentum_reason = f"Strong Bearish Momentum ({momentum*100:.2f}%)"
+                        
+                        # Momentum acceleration (to downside)
+                        if momentum_accel < 0:
+                            momentum_score += 2
+                            momentum_reason += " + Acceleration"
+                        
+                        # Multi-timeframe momentum alignment
+                        if (not pd.isna(momentum_fast) and not pd.isna(momentum_slow) and
+                            momentum_fast < 0 and momentum_slow < 0):
+                            momentum_score += 2
+                            momentum_reason += " + Multi-TF Alignment"
+                        
+                        # Volume-weighted momentum
+                        if volume_ratio > self.volume_threshold:
+                            momentum_score += 2
+                            momentum_reason += " + Volume Confirmation"
+                        
+                        sell_score += momentum_score
+                        signal_reasons.append(momentum_reason)
+                
+                # CONDITION 4: MOMENTUM DIVERGENCE BEARISH
+                if current.get('momentum_bearish_div', False):
+                    sell_score += 3
+                    signal_reasons.append("Bearish Momentum Divergence")
+                
+                # CONDITION 5: VOLATILITY EXPANSION ON BEARISH MOVES
+                if (volatility_ratio > 1.3 and momentum < 0 and 
+                    current.get('close', 0) < current.get('open', 0)):
+                    sell_score += 2
+                    signal_reasons.append(f"Volatility Expansion on Bearish Move ({volatility_ratio:.1f}x)")
                 
                 # =========================
                 # FINAL SIGNAL DECISION
@@ -751,13 +751,13 @@ class PurePriceActionStrategy(TradingStrategy):
                 
                 # Otherwise, HOLD (default state)
                 # This happens when:
-                # - Not in a strong zone
-                # - No clear price action confirmation
+                # - No clear patterns detected
+                # - Weak momentum
                 # - Conflicting signals
                 # - Insufficient signal strength
             
         except Exception as e:
-            logger.error(f"Error generating zone-based price action signals: {e}")
+            logger.error(f"Error generating pure price action signals: {e}")
             logger.error(traceback.format_exc())
     
     def get_signal(self, klines):
@@ -813,51 +813,28 @@ class PurePriceActionStrategy(TradingStrategy):
                 logger.warning("Invalid signal data - NaN values found")
                 return None
             
-            # Generate signal based on Zone + Price Action confirmation
+            # Generate signal based on Pure Price Action
             signal = None
             
-            # BUY Signal: Zone-based bullish confirmation
+            # BUY Signal: Pure price action bullish confirmation
             if latest.get('buy_signal', False):
                 signal = 'BUY'
                 signal_strength = latest.get('signal_strength', 0)
                 signal_reason = latest.get('signal_reason', '')
                 
-                logger.info(f"🟢 BUY Signal - Zone-Based Price Action Confirmation")
+                logger.info(f"🟢 BUY Signal - Pure Price Action Confirmation")
                 logger.info(f"   Signal Strength: {signal_strength}/10")
                 logger.info(f"   Signal Reason: {signal_reason}")
                 
-                # Display zone information
+                # Display current price and momentum
                 close_price = latest.get('close', 0)
-                resistance = latest.get('resistance', 0)
-                support = latest.get('support', 0)
-                
                 if not pd.isna(close_price):
                     logger.info(f"   Current Price: {close_price:.6f}")
-                    
-                # Zone strength information
-                resistance_strength = latest.get('resistance_zone_strength', 0)
-                support_strength = latest.get('support_zone_strength', 0)
-                
-                if not pd.isna(support) and support > 0:
-                    logger.info(f"   Support Zone: {support:.6f} (Strength: {support_strength})")
-                if not pd.isna(resistance) and resistance > 0:
-                    logger.info(f"   Resistance Zone: {resistance:.6f} (Strength: {resistance_strength})")
-                
-                # Zone position
-                in_support_zone = latest.get('in_support_zone', False)
-                in_resistance_zone = latest.get('in_resistance_zone', False)
-                
-                if in_support_zone:
-                    logger.info(f"   📍 PRICE IN SUPPORT ZONE - Looking for bullish rejection")
-                elif in_resistance_zone:
-                    logger.info(f"   📍 PRICE IN RESISTANCE ZONE - Breakout opportunity")
                 
                 # Price action patterns
                 patterns = []
                 
                 # Reversal patterns
-                if latest.get('bullish_rejection', False):
-                    patterns.append("Bullish Zone Rejection")
                 if latest.get('pin_bar_bullish', False):
                     patterns.append("Bullish Pin Bar (Hammer)")
                 if latest.get('engulfing_bullish', False):
@@ -873,15 +850,11 @@ class PurePriceActionStrategy(TradingStrategy):
                 if latest.get('dragonfly_doji', False):
                     patterns.append("Dragonfly Doji")
                 
-                # Breakout patterns
-                if latest.get('bullish_breakout', False):
-                    patterns.append("Bullish Breakout")
+                # Continuation patterns
                 if latest.get('bullish_flag', False):
                     patterns.append("Bullish Flag")
                 if latest.get('bullish_pennant', False):
                     patterns.append("Bullish Pennant")
-                
-                # Continuation patterns
                 if latest.get('inside_bar', False):
                     patterns.append("Inside Bar")
                 if latest.get('outside_bar', False) and latest.get('close', 0) > latest.get('open', 0):
@@ -890,60 +863,57 @@ class PurePriceActionStrategy(TradingStrategy):
                     patterns.append("Spinning Top")
                 
                 if patterns:
-                    logger.info(f"   🎯 Confirmed Patterns: {', '.join(patterns)}")
+                    logger.info(f"   🎯 Detected Patterns: {', '.join(patterns)}")
                 
-                # Momentum and volume
+                # Momentum analysis
                 momentum = latest.get('price_momentum', 0)
+                momentum_fast = latest.get('momentum_fast', 0)
+                momentum_slow = latest.get('momentum_slow', 0)
+                
                 if not pd.isna(momentum):
                     logger.info(f"   📈 Price Momentum: {momentum*100:.2f}%")
+                
+                if not pd.isna(momentum_fast) and not pd.isna(momentum_slow):
+                    logger.info(f"   📊 Fast Momentum: {momentum_fast*100:.2f}%")
+                    logger.info(f"   📊 Slow Momentum: {momentum_slow*100:.2f}%")
+                
+                # Volatility and volume
+                volatility_ratio = latest.get('volatility_ratio', 1.0)
+                if not pd.isna(volatility_ratio):
+                    logger.info(f"   📊 Volatility Ratio: {volatility_ratio:.2f}x")
                 
                 if 'volume_ratio' in df.columns:
                     volume_ratio = latest.get('volume_ratio', 1.0)
                     if not pd.isna(volume_ratio):
                         logger.info(f"   📊 Volume Ratio: {volume_ratio:.2f}x average")
+                
+                # Trend context
+                if latest.get('trend_bullish', False):
+                    logger.info(f"   📈 Trend Context: BULLISH")
+                elif latest.get('trend_bearish', False):
+                    logger.info(f"   📉 Trend Context: BEARISH")
+                else:
+                    logger.info(f"   ➡️ Trend Context: NEUTRAL")
             
-            # SELL Signal: Zone-based bearish confirmation
+            # SELL Signal: Pure price action bearish confirmation
             elif latest.get('sell_signal', False):
                 signal = 'SELL'
                 signal_strength = latest.get('signal_strength', 0)
                 signal_reason = latest.get('signal_reason', '')
                 
-                logger.info(f"🔴 SELL Signal - Zone-Based Price Action Confirmation")
+                logger.info(f"🔴 SELL Signal - Pure Price Action Confirmation")
                 logger.info(f"   Signal Strength: {signal_strength}/10")
                 logger.info(f"   Signal Reason: {signal_reason}")
                 
-                # Display zone information
+                # Display current price and momentum
                 close_price = latest.get('close', 0)
-                resistance = latest.get('resistance', 0)
-                support = latest.get('support', 0)
-                
                 if not pd.isna(close_price):
                     logger.info(f"   Current Price: {close_price:.6f}")
-                    
-                # Zone strength information
-                resistance_strength = latest.get('resistance_zone_strength', 0)
-                support_strength = latest.get('support_zone_strength', 0)
-                
-                if not pd.isna(resistance) and resistance > 0:
-                    logger.info(f"   Resistance Zone: {resistance:.6f} (Strength: {resistance_strength})")
-                if not pd.isna(support) and support > 0:
-                    logger.info(f"   Support Zone: {support:.6f} (Strength: {support_strength})")
-                
-                # Zone position
-                in_support_zone = latest.get('in_support_zone', False)
-                in_resistance_zone = latest.get('in_resistance_zone', False)
-                
-                if in_resistance_zone:
-                    logger.info(f"   📍 PRICE IN RESISTANCE ZONE - Looking for bearish rejection")
-                elif in_support_zone:
-                    logger.info(f"   📍 PRICE IN SUPPORT ZONE - Breakdown opportunity")
                 
                 # Price action patterns
                 patterns = []
                 
                 # Reversal patterns
-                if latest.get('bearish_rejection', False):
-                    patterns.append("Bearish Zone Rejection")
                 if latest.get('pin_bar_bearish', False):
                     patterns.append("Bearish Pin Bar (Shooting Star)")
                 if latest.get('engulfing_bearish', False):
@@ -959,15 +929,11 @@ class PurePriceActionStrategy(TradingStrategy):
                 if latest.get('gravestone_doji', False):
                     patterns.append("Gravestone Doji")
                 
-                # Breakdown patterns
-                if latest.get('bearish_breakout', False):
-                    patterns.append("Bearish Breakout")
+                # Continuation patterns
                 if latest.get('bearish_flag', False):
                     patterns.append("Bearish Flag")
                 if latest.get('bearish_pennant', False):
                     patterns.append("Bearish Pennant")
-                
-                # Continuation patterns
                 if latest.get('inside_bar', False):
                     patterns.append("Inside Bar")
                 if latest.get('outside_bar', False) and latest.get('close', 0) < latest.get('open', 0):
@@ -976,69 +942,78 @@ class PurePriceActionStrategy(TradingStrategy):
                     patterns.append("Spinning Bottom")
                 
                 if patterns:
-                    logger.info(f"   🎯 Confirmed Patterns: {', '.join(patterns)}")
+                    logger.info(f"   🎯 Detected Patterns: {', '.join(patterns)}")
                 
-                # Momentum and volume
+                # Momentum analysis
                 momentum = latest.get('price_momentum', 0)
+                momentum_fast = latest.get('momentum_fast', 0)
+                momentum_slow = latest.get('momentum_slow', 0)
+                
                 if not pd.isna(momentum):
                     logger.info(f"   📉 Price Momentum: {momentum*100:.2f}%")
+                
+                if not pd.isna(momentum_fast) and not pd.isna(momentum_slow):
+                    logger.info(f"   📊 Fast Momentum: {momentum_fast*100:.2f}%")
+                    logger.info(f"   📊 Slow Momentum: {momentum_slow*100:.2f}%")
+                
+                # Volatility and volume
+                volatility_ratio = latest.get('volatility_ratio', 1.0)
+                if not pd.isna(volatility_ratio):
+                    logger.info(f"   📊 Volatility Ratio: {volatility_ratio:.2f}x")
                 
                 if 'volume_ratio' in df.columns:
                     volume_ratio = latest.get('volume_ratio', 1.0)
                     if not pd.isna(volume_ratio):
                         logger.info(f"   📊 Volume Ratio: {volume_ratio:.2f}x average")
+                
+                # Trend context
+                if latest.get('trend_bullish', False):
+                    logger.info(f"   📈 Trend Context: BULLISH")
+                elif latest.get('trend_bearish', False):
+                    logger.info(f"   📉 Trend Context: BEARISH")
+                else:
+                    logger.info(f"   ➡️ Trend Context: NEUTRAL")
             
-            # HOLD Signal: Waiting for zone confirmation
+            # HOLD Signal: Waiting for clear price action patterns
             else:
                 signal = 'HOLD'
-                logger.info(f"⚪ HOLD Signal - Waiting for Zone + Price Action Confirmation")
+                logger.info(f"⚪ HOLD Signal - Waiting for Clear Price Action Patterns")
                 
                 close_price = latest.get('close', 0)
-                resistance = latest.get('resistance', 0)
-                support = latest.get('support', 0)
-                
                 if not pd.isna(close_price):
                     logger.info(f"   Current Price: {close_price:.6f}")
-                
-                # Show zone distances
-                if not pd.isna(support) and not pd.isna(resistance):
-                    logger.info(f"   Support Zone: {support:.6f}")
-                    logger.info(f"   Resistance Zone: {resistance:.6f}")
-                    
-                    dist_to_support = abs(close_price - support) / close_price * 100
-                    dist_to_resistance = abs(resistance - close_price) / close_price * 100
-                    
-                    logger.info(f"   📏 Distance to Support: {dist_to_support:.2f}%")
-                    logger.info(f"   📏 Distance to Resistance: {dist_to_resistance:.2f}%")
-                
-                # Zone strength information
-                resistance_strength = latest.get('resistance_zone_strength', 0)
-                support_strength = latest.get('support_zone_strength', 0)
-                
-                if resistance_strength > 0 or support_strength > 0:
-                    logger.info(f"   Zone Strengths - Support: {support_strength}, Resistance: {resistance_strength}")
-                
-                # Current position
-                in_support_zone = latest.get('in_support_zone', False)
-                in_resistance_zone = latest.get('in_resistance_zone', False)
-                
-                if in_support_zone:
-                    logger.info(f"   📍 Currently in SUPPORT ZONE - Watching for rejection patterns")
-                elif in_resistance_zone:
-                    logger.info(f"   📍 Currently in RESISTANCE ZONE - Watching for rejection patterns")
-                else:
-                    logger.info(f"   📍 Price in neutral zone - Waiting for zone approach")
-                
-                # Momentum info
-                momentum = latest.get('price_momentum', 0)
-                if not pd.isna(momentum):
-                    logger.info(f"   📊 Current Momentum: {momentum*100:.2f}%")
-                    logger.info(f"   Resistance Level: {resistance:.6f}")
                 
                 # Current momentum info
                 momentum = latest.get('price_momentum', 0)
                 if not pd.isna(momentum):
-                    logger.info(f"   📍 Current Momentum: {momentum*100:.2f}%")
+                    logger.info(f"   📊 Current Momentum: {momentum*100:.2f}%")
+                    
+                    if abs(momentum) < self.momentum_threshold:
+                        logger.info(f"   ⏳ Momentum below threshold ({self.momentum_threshold*100:.1f}%)")
+                
+                # Trend info
+                if latest.get('trend_bullish', False):
+                    logger.info(f"   📊 Trend Context: BULLISH - Waiting for bullish patterns")
+                elif latest.get('trend_bearish', False):
+                    logger.info(f"   📊 Trend Context: BEARISH - Waiting for bearish patterns")
+                else:
+                    logger.info(f"   ➡️ Trend Context: NEUTRAL - Waiting for directional clarity")
+                
+                # Pattern status
+                any_patterns = any([
+                    latest.get('pin_bar_bullish', False),
+                    latest.get('pin_bar_bearish', False),
+                    latest.get('engulfing_bullish', False),
+                    latest.get('engulfing_bearish', False),
+                    latest.get('morning_star', False),
+                    latest.get('evening_star', False),
+                    latest.get('doji', False)
+                ])
+                
+                if not any_patterns:
+                    logger.info(f"   ⏳ No significant patterns detected")
+                else:
+                    logger.info(f"   � Patterns detected but insufficient strength for signal")
             
             # Store signal for history (with safe data)
             timestamp = latest.get('timestamp')
@@ -1063,71 +1038,6 @@ class PurePriceActionStrategy(TradingStrategy):
             logger.error(traceback.format_exc())
             return None
     
-    def analyze_support_resistance_action(self, df, index):
-        """
-        Analyze support/resistance price action for the current candle
-        Returns a dictionary with analysis results
-        """
-        if index < 1 or index >= len(df):
-            return {}
-        
-        current = df.iloc[index]
-        previous = df.iloc[index-1]
-        
-        analysis = {
-            'resistance_breakout': False,
-            'resistance_rejection': False,
-            'support_breakdown': False,
-            'support_rejection': False,
-            'action_type': 'none',
-            'strength': 0
-        }
-        
-        close_price = current.get('close', 0)
-        high_price = current.get('high', 0)
-        low_price = current.get('low', 0)
-        resistance = current.get('resistance', 0)
-        support = current.get('support', 0)
-        prev_close = previous.get('close', 0)
-        
-        # Skip if any critical values are invalid
-        if any(pd.isna(val) or val <= 0 for val in [close_price, resistance, support]):
-            return analysis
-        
-        # Resistance Analysis
-        if resistance > 0:
-            # Resistance Breakout (Close above resistance)
-            if close_price > resistance * 1.002:  # 0.2% above resistance
-                analysis['resistance_breakout'] = True
-                analysis['action_type'] = 'resistance_breakout'
-                analysis['strength'] = min(5, int((close_price - resistance) / resistance * 500))
-            
-            # Resistance Rejection (Touched resistance but closed below)
-            elif (high_price >= resistance * 0.998 and  # Touched resistance
-                  close_price < resistance * 0.995 and  # Closed significantly below
-                  prev_close < resistance):              # Previous was below resistance
-                analysis['resistance_rejection'] = True
-                analysis['action_type'] = 'resistance_rejection'
-                analysis['strength'] = min(5, int((resistance - close_price) / resistance * 500))
-        
-        # Support Analysis
-        if support > 0:
-            # Support Breakdown (Close below support)
-            if close_price < support * 0.998:  # 0.2% below support
-                analysis['support_breakdown'] = True
-                analysis['action_type'] = 'support_breakdown'
-                analysis['strength'] = min(5, int((support - close_price) / support * 500))
-            
-            # Support Rejection (Touched support but closed above)
-            elif (low_price <= support * 1.002 and   # Touched support
-                  close_price > support * 1.005 and  # Closed significantly above
-                  prev_close > support):              # Previous was above support
-                analysis['support_rejection'] = True
-                analysis['action_type'] = 'support_rejection'
-                analysis['strength'] = min(5, int((close_price - support) / support * 500))
-        
-        return analysis
-
     def _add_price_action_patterns(self, df):
         """Add comprehensive price action confirmation patterns to the dataframe"""
         try:
@@ -1412,83 +1322,57 @@ class PurePriceActionStrategy(TradingStrategy):
                                 df.at[i, 'bearish_pennant'] = True
                 
                 # ==============================================
-                # ZONE-SPECIFIC REJECTION AND BREAKOUT PATTERNS
+                # ENHANCED PATTERN CONFIRMATION
                 # ==============================================
                 
-                in_support_zone = current.get('in_support_zone', False)
-                in_resistance_zone = current.get('in_resistance_zone', False)
-                resistance = current.get('resistance', 0)
-                support = current.get('support', 0)
+                # No support/resistance zones - use pure price action patterns only
+                # Pattern confirmation based on candle strength and momentum
                 
-                # 15. ZONE REJECTION PATTERNS
-                if in_support_zone:
-                    # Multiple ways to confirm bullish rejection at support
-                    bullish_patterns = [
-                        df.at[i, 'pin_bar_bullish'],
-                        df.at[i, 'engulfing_bullish'],
-                        df.at[i, 'tweezer_bottom'],
-                        df.at[i, 'morning_star'],
-                        df.at[i, 'dragonfly_doji']
-                    ]
-                    
-                    # Strong bounce pattern
-                    strong_bounce = (c_low <= prev['low'] and c_close > c_open and 
-                                   c_body > c_range * 0.6)
-                    
-                    if any(bullish_patterns) or strong_bounce:
+                # Strong bullish patterns get additional confirmation
+                bullish_patterns = [
+                    df.at[i, 'pin_bar_bullish'],
+                    df.at[i, 'engulfing_bullish'],
+                    df.at[i, 'tweezer_bottom'],
+                    df.at[i, 'morning_star'],
+                    df.at[i, 'dragonfly_doji'],
+                    df.at[i, 'three_white_soldiers']
+                ]
+                
+                # Strong bearish patterns get additional confirmation
+                bearish_patterns = [
+                    df.at[i, 'pin_bar_bearish'],
+                    df.at[i, 'engulfing_bearish'],
+                    df.at[i, 'tweezer_top'],
+                    df.at[i, 'evening_star'],
+                    df.at[i, 'gravestone_doji'],
+                    df.at[i, 'three_black_crows']
+                ]
+                
+                # Momentum-based pattern confirmation
+                momentum = current.get('price_momentum', 0)
+                volume_ratio = current.get('volume_ratio', 1.0)
+                
+                # Enhanced bullish confirmation
+                if any(bullish_patterns):
+                    # Add momentum and volume confirmation
+                    strong_bullish_confluence = (
+                        momentum > 0.005 and  # Positive momentum
+                        volume_ratio > 1.2 and  # Above average volume
+                        c_close > c_open  # Green candle
+                    )
+                    if strong_bullish_confluence:
                         df.at[i, 'bullish_rejection'] = True
                 
-                if in_resistance_zone:
-                    # Multiple ways to confirm bearish rejection at resistance
-                    bearish_patterns = [
-                        df.at[i, 'pin_bar_bearish'],
-                        df.at[i, 'engulfing_bearish'],
-                        df.at[i, 'tweezer_top'],
-                        df.at[i, 'evening_star'],
-                        df.at[i, 'gravestone_doji']
-                    ]
-                    
-                    # Strong rejection pattern
-                    strong_rejection = (c_high >= prev['high'] and c_close < c_open and 
-                                      c_body > c_range * 0.6)
-                    
-                    if any(bearish_patterns) or strong_rejection:
+                # Enhanced bearish confirmation
+                if any(bearish_patterns):
+                    # Add momentum and volume confirmation
+                    strong_bearish_confluence = (
+                        momentum < -0.005 and  # Negative momentum
+                        volume_ratio > 1.2 and  # Above average volume
+                        c_close < c_open  # Red candle
+                    )
+                    if strong_bearish_confluence:
                         df.at[i, 'bearish_rejection'] = True
-                
-                # 16. BREAKOUT CONFIRMATION PATTERNS
-                if resistance > 0:
-                    # Bullish breakout with strong confirmation
-                    breakout_patterns = [
-                        df.at[i, 'marubozu_bullish'],
-                        df.at[i, 'engulfing_bullish'],
-                        df.at[i, 'three_white_soldiers'],
-                        df.at[i, 'bullish_flag'],
-                        df.at[i, 'bullish_pennant']
-                    ]
-                    
-                    strong_breakout = (c_close > resistance * 1.003 and c_close > c_open and 
-                                     c_body > c_range * 0.7 and 
-                                     current.get('volume_ratio', 1.0) > 1.3)
-                    
-                    if any(breakout_patterns) or strong_breakout:
-                        df.at[i, 'bullish_breakout'] = True
-                
-                if support > 0:
-                    # Bearish breakdown with strong confirmation
-                    breakdown_patterns = [
-                        df.at[i, 'marubozu_bearish'],
-                        df.at[i, 'engulfing_bearish'],
-                        df.at[i, 'three_black_crows'],
-                        df.at[i, 'bearish_flag'],
-                        df.at[i, 'bearish_pennant']
-                    ]
-                    
-                    strong_breakdown = (c_close < support * 0.997 and c_close < c_open and 
-                                      c_body > c_range * 0.7 and 
-                                      current.get('volume_ratio', 1.0) > 1.3)
-                    
-                    if any(breakdown_patterns) or strong_breakdown:
-                        df.at[i, 'bearish_breakout'] = True
             
             return df
             
@@ -1503,18 +1387,18 @@ def get_strategy(strategy_name):
     strategies = {
         'PurePriceActionStrategy': PurePriceActionStrategy(
             lookback_period=PRICE_ACTION_LOOKBACK,
-            breakout_threshold=BREAKOUT_THRESHOLD,
+            momentum_threshold=MOMENTUM_THRESHOLD,
             volatility_window=VOLATILITY_WINDOW,
             momentum_window=MOMENTUM_WINDOW,
-            sr_strength=SUPPORT_RESISTANCE_STRENGTH
+            volume_threshold=VOLUME_THRESHOLD
         ),
         # Keep compatibility with old name
         'SmartTrendCatcher': PurePriceActionStrategy(
             lookback_period=PRICE_ACTION_LOOKBACK,
-            breakout_threshold=BREAKOUT_THRESHOLD,
+            momentum_threshold=MOMENTUM_THRESHOLD,
             volatility_window=VOLATILITY_WINDOW,
             momentum_window=MOMENTUM_WINDOW,
-            sr_strength=SUPPORT_RESISTANCE_STRENGTH
+            volume_threshold=VOLUME_THRESHOLD
         ),
     }
     

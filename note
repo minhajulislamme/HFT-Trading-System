@@ -160,9 +160,9 @@ Enhanced momentum filtering for trend confirmation
 
     cd /home/minhajulislam/tradingbot && python3 main.py --backtest --symbol RAYSOLUSDT --strategy SmartTrendCatcher --start-date "30 days ago"
 
-python3 main.py --backtest --symbol SOLUSDT --strategy PurePriceActionStrategy --start-date "30 days ago"
+python3 main.py --backtest --symbol BTCUSDT --strategy PurePriceActionStrategy --start-date "30 days ago"
 
-python3 main.py --backtest --symbol SUIUSDT --start-date 2025-03-01 --end-date 2025-06-01 --strategy PurePriceActionStrategy --timeframe 5m
+python3 main.py --backtest --symbol BTCUSDT --start-date 2025-06-01 --end-date 2025-07-01 --strategy PurePriceActionStrategy --timeframe 15m
 
 
 

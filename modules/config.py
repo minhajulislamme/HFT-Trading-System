@@ -25,15 +25,15 @@ else:
 RECV_WINDOW = int(os.getenv('BINANCE_RECV_WINDOW', '10000'))
 
 # Trading parameters
-TRADING_SYMBOL = os.getenv('TRADING_SYMBOL', 'SOLUSDT')
+TRADING_SYMBOL = os.getenv('TRADING_SYMBOL', 'BTCUSDT')
 TRADING_TYPE = 'FUTURES'  # Use futures trading
-LEVERAGE = int(os.getenv('LEVERAGE', '20'))
+LEVERAGE = int(os.getenv('LEVERAGE', '25'))  # Default leverage set to 25x
 MARGIN_TYPE = os.getenv('MARGIN_TYPE', 'CROSSED')  # ISOLATED or CROSSED
 STRATEGY = os.getenv('STRATEGY', 'PurePriceActionStrategy')
 
 # Position sizing - Enhanced risk management (aligned with SmartTrendCatcher)
 INITIAL_BALANCE = float(os.getenv('INITIAL_BALANCE', '50.0'))
-FIXED_TRADE_PERCENTAGE = float(os.getenv('FIXED_TRADE_PERCENTAGE', '0.20'))  # 40% to match strategy base_position_pct
+FIXED_TRADE_PERCENTAGE = float(os.getenv('FIXED_TRADE_PERCENTAGE', '0.40'))  # 40% to match strategy base_position_pct
 MAX_OPEN_POSITIONS = int(os.getenv('MAX_OPEN_POSITIONS', '3'))  # Conservative for better risk management
 
 # Margin safety settings - More conservative
@@ -56,27 +56,28 @@ COMPOUND_MIN_WIN_RATE = float(os.getenv('COMPOUND_MIN_WIN_RATE', '0.6'))  # Requ
 COMPOUND_MAX_DRAWDOWN = float(os.getenv('COMPOUND_MAX_DRAWDOWN', '0.15'))  # Pause if >15% drawdown
 COMPOUND_SCALING_FACTOR = float(os.getenv('COMPOUND_SCALING_FACTOR', '0.5'))  # Reduce compounding if performance poor
 
-# Pure Price Action Strategy Parameters - No Traditional Indicators
+# Pure Price Action Strategy Parameters - No Support/Resistance Dependencies
 
 # Price action analysis parameters
-PRICE_ACTION_LOOKBACK = int(os.getenv('PRICE_ACTION_LOOKBACK', '25'))    # Extended lookback for better zones
-BREAKOUT_THRESHOLD = float(os.getenv('BREAKOUT_THRESHOLD', '0.015'))     # 1.5% breakout threshold
+PRICE_ACTION_LOOKBACK = int(os.getenv('PRICE_ACTION_LOOKBACK', '20'))    # Lookback for momentum/volatility
+MOMENTUM_THRESHOLD = float(os.getenv('MOMENTUM_THRESHOLD', '0.01'))      # 1% momentum threshold for signals
 VOLATILITY_WINDOW = int(os.getenv('VOLATILITY_WINDOW', '14'))            # Volatility calculation window
-MOMENTUM_WINDOW = int(os.getenv('MOMENTUM_WINDOW', '12'))                # Extended momentum window
-SUPPORT_RESISTANCE_STRENGTH = int(os.getenv('SUPPORT_RESISTANCE_STRENGTH', '3'))  # S/R level strength
+MOMENTUM_WINDOW = int(os.getenv('MOMENTUM_WINDOW', '10'))                # Momentum calculation window
+VOLUME_THRESHOLD = float(os.getenv('VOLUME_THRESHOLD', '1.5'))           # Volume spike threshold (1.5x average)
 
-TIMEFRAME = os.getenv('TIMEFRAME', '15m')  # Default to 15 minutes for better pattern detection
+# Timeframe optimized for pure price action pattern detection
+TIMEFRAME = os.getenv('TIMEFRAME', '5m')  # 5-minute timeframe for responsive pattern detection
 
 # Risk management - Enhanced for pattern-based trading
 USE_STOP_LOSS = os.getenv('USE_STOP_LOSS', 'True').lower() == 'true'
-STOP_LOSS_PCT = float(os.getenv('STOP_LOSS_PCT', '0.008'))  # 0.8% stop loss (room for patterns)
+STOP_LOSS_PCT = float(os.getenv('STOP_LOSS_PCT', '0.005'))  # 0.5% stop loss (room for patterns)
 TRAILING_STOP = os.getenv('TRAILING_STOP', 'True').lower() == 'true'
-TRAILING_STOP_PCT = float(os.getenv('TRAILING_STOP_PCT', '0.012'))  # 1.2% trailing stop
+TRAILING_STOP_PCT = float(os.getenv('TRAILING_STOP_PCT', '0.005'))  # 0.5% trailing stop
 UPDATE_TRAILING_ON_HOLD = os.getenv('UPDATE_TRAILING_ON_HOLD', 'True').lower() == 'true'
 
 # Take profit settings - Optimized for pattern-based trading
 USE_TAKE_PROFIT = os.getenv('USE_TAKE_PROFIT', 'True').lower() == 'true'
-TAKE_PROFIT_PCT = float(os.getenv('TAKE_PROFIT_PCT', '0.02'))  # 2% take profit for better R:R
+TAKE_PROFIT_PCT = float(os.getenv('TAKE_PROFIT_PCT', '0.015'))  # 1.5% take profit for better R:R
 
 # Enhanced backtesting parameters
 BACKTEST_START_DATE = os.getenv('BACKTEST_START_DATE', '2023-01-01')
@@ -105,48 +106,48 @@ DAILY_REPORT_TIME = os.getenv('DAILY_REPORT_TIME', '00:00')  # 24-hour format
 RETRY_COUNT = int(os.getenv('RETRY_COUNT', '3'))
 RETRY_DELAY = int(os.getenv('RETRY_DELAY', '5'))  # seconds
 
-# Enhanced Price Action Pattern Configuration
-ZONE_WIDTH_PCT = float(os.getenv('ZONE_WIDTH_PCT', '0.005'))  # 0.5% zone width for S/R zones
-MIN_ZONE_STRENGTH = int(os.getenv('MIN_ZONE_STRENGTH', '3'))  # Minimum zone strength for trading
-MIN_SIGNAL_STRENGTH = int(os.getenv('MIN_SIGNAL_STRENGTH', '4'))  # Minimum signal strength (out of 10)
+# Enhanced Pure Price Action Pattern Configuration
 
-# Pattern Detection Parameters
+# Candlestick pattern quality filters
+MIN_PIN_BAR_SHADOW_RATIO = float(os.getenv('MIN_PIN_BAR_SHADOW_RATIO', '2.5'))  # Shadow must be 2.5x body
+MIN_MARUBOZU_BODY_RATIO = float(os.getenv('MIN_MARUBOZU_BODY_RATIO', '0.9'))   # Body must be 90% of range
+MIN_DOJI_BODY_RATIO = float(os.getenv('MIN_DOJI_BODY_RATIO', '0.1'))           # Body must be <10% of range
+MIN_ENGULFING_SIZE_RATIO = float(os.getenv('MIN_ENGULFING_SIZE_RATIO', '1.1'))  # Engulfing body 110% of previous
+
+# Pattern detection parameters
 ENABLE_MULTI_CANDLE_PATTERNS = os.getenv('ENABLE_MULTI_CANDLE_PATTERNS', 'True').lower() == 'true'
 ENABLE_FLAG_PENNANT_DETECTION = os.getenv('ENABLE_FLAG_PENNANT_DETECTION', 'True').lower() == 'true'
 MIN_FLAG_CONSOLIDATION_CANDLES = int(os.getenv('MIN_FLAG_CONSOLIDATION_CANDLES', '5'))
 MIN_PENNANT_CONSOLIDATION_CANDLES = int(os.getenv('MIN_PENNANT_CONSOLIDATION_CANDLES', '6'))
 
-# Pattern Quality Filters
-MIN_PIN_BAR_SHADOW_RATIO = float(os.getenv('MIN_PIN_BAR_SHADOW_RATIO', '2.5'))  # Shadow must be 2.5x body
-MIN_MARUBOZU_BODY_RATIO = float(os.getenv('MIN_MARUBOZU_BODY_RATIO', '0.9'))  # Body must be 90% of range
-MIN_DOJI_BODY_RATIO = float(os.getenv('MIN_DOJI_BODY_RATIO', '0.1'))  # Body must be <10% of range
-MIN_ENGULFING_SIZE_RATIO = float(os.getenv('MIN_ENGULFING_SIZE_RATIO', '1.1'))  # Engulfing body 110% of previous
+# Signal strength requirements (pure price action)
+MIN_SIGNAL_STRENGTH = int(os.getenv('MIN_SIGNAL_STRENGTH', '4'))  # Minimum signal strength (out of 10)
 
-# Volume Confirmation (when available)
+# Volume confirmation (when available)
 VOLUME_CONFIRMATION_MULTIPLIER = float(os.getenv('VOLUME_CONFIRMATION_MULTIPLIER', '1.5'))  # 1.5x average volume
 ENABLE_VOLUME_CONFIRMATION = os.getenv('ENABLE_VOLUME_CONFIRMATION', 'True').lower() == 'true'
 
-# Risk Management for Enhanced Patterns
+# Risk Management for Pure Price Action Patterns
 PATTERN_BASED_POSITION_SIZING = os.getenv('PATTERN_BASED_POSITION_SIZING', 'True').lower() == 'true'
 HIGH_CONFIDENCE_POSITION_MULTIPLIER = float(os.getenv('HIGH_CONFIDENCE_POSITION_MULTIPLIER', '1.2'))  # 20% larger for high confidence
 LOW_CONFIDENCE_POSITION_MULTIPLIER = float(os.getenv('LOW_CONFIDENCE_POSITION_MULTIPLIER', '0.8'))  # 20% smaller for low confidence
 
-# Pattern-Specific Risk Management
+# Pattern-Specific Risk Management (pure price action)
 PATTERN_SPECIFIC_RISK = os.getenv('PATTERN_SPECIFIC_RISK', 'True').lower() == 'true'
 
 # Different stop losses for different pattern types
-REVERSAL_PATTERN_STOP_PCT = float(os.getenv('REVERSAL_PATTERN_STOP_PCT', '0.01'))   # 1% for reversal patterns
-BREAKOUT_PATTERN_STOP_PCT = float(os.getenv('BREAKOUT_PATTERN_STOP_PCT', '0.008'))  # 0.8% for breakouts
+REVERSAL_PATTERN_STOP_PCT = float(os.getenv('REVERSAL_PATTERN_STOP_PCT', '0.012'))   # 1.2% for reversal patterns
+MOMENTUM_PATTERN_STOP_PCT = float(os.getenv('MOMENTUM_PATTERN_STOP_PCT', '0.008'))   # 0.8% for momentum patterns
 CONTINUATION_PATTERN_STOP_PCT = float(os.getenv('CONTINUATION_PATTERN_STOP_PCT', '0.006'))  # 0.6% for continuation
 
 # Different take profits for pattern types  
 REVERSAL_PATTERN_TP_PCT = float(os.getenv('REVERSAL_PATTERN_TP_PCT', '0.025'))      # 2.5% for reversals
-BREAKOUT_PATTERN_TP_PCT = float(os.getenv('BREAKOUT_PATTERN_TP_PCT', '0.03'))       # 3% for breakouts
+MOMENTUM_PATTERN_TP_PCT = float(os.getenv('MOMENTUM_PATTERN_TP_PCT', '0.03'))       # 3% for momentum patterns
 CONTINUATION_PATTERN_TP_PCT = float(os.getenv('CONTINUATION_PATTERN_TP_PCT', '0.02'))  # 2% for continuation
 
-# Signal confidence adjustments
+# Pure Price Action Pattern Confidence Levels
 HIGH_CONFIDENCE_PATTERNS = ['morning_star', 'evening_star', 'three_white_soldiers', 'three_black_crows', 
-                           'marubozu_bullish', 'marubozu_bearish', 'bullish_breakout', 'bearish_breakout']
-MEDIUM_CONFIDENCE_PATTERNS = ['engulfing_bullish', 'engulfing_bearish', 'pin_bar_bullish', 'pin_bar_bearish',
-                             'tweezer_top', 'tweezer_bottom', 'bullish_flag', 'bearish_flag']
+                           'marubozu_bullish', 'marubozu_bearish', 'engulfing_bullish', 'engulfing_bearish']
+MEDIUM_CONFIDENCE_PATTERNS = ['pin_bar_bullish', 'pin_bar_bearish', 'tweezer_top', 'tweezer_bottom',
+                             'bullish_flag', 'bearish_flag', 'bullish_pennant', 'bearish_pennant']
 LOW_CONFIDENCE_PATTERNS = ['doji', 'spinning_top', 'spinning_bottom', 'inside_bar', 'outside_bar']
