@@ -204,7 +204,13 @@ class BacktestResults:
         equity_df = pd.DataFrame(self.equity_curve)
         if len(equity_df) > 0:
             equity_df['cummax'] = equity_df['total_equity'].cummax()
-            equity_df['drawdown'] = (equity_df['total_equity'] - equity_df['cummax']) / equity_df['cummax'] * 100
+            # Prevent division by zero in drawdown calculation
+            equity_df['drawdown'] = 0.0
+            non_zero_mask = equity_df['cummax'] > 0
+            equity_df.loc[non_zero_mask, 'drawdown'] = (
+                (equity_df.loc[non_zero_mask, 'total_equity'] - equity_df.loc[non_zero_mask, 'cummax']) / 
+                equity_df.loc[non_zero_mask, 'cummax'] * 100
+            )
             max_drawdown = equity_df['drawdown'].min()
         else:
             max_drawdown = 0
@@ -355,34 +361,46 @@ class Backtester:
             adjusted_percentage = min(adjusted_percentage, 0.5)
             
             # Risk-based position sizing using stop loss
-            if stop_loss and USE_STOP_LOSS:
+            if stop_loss and USE_STOP_LOSS and price > 0:
                 # Calculate risk per unit
                 risk_per_unit = abs(price - stop_loss)
-                risk_percentage = risk_per_unit / price
                 
-                # Maximum risk per trade (2% of balance)
-                max_risk_amount = self.current_balance * 0.02
-                
-                # Calculate position size based on risk
-                risk_based_quantity = max_risk_amount / risk_per_unit
-                
-                # Calculate percentage-based quantity
-                trade_amount = self.current_balance * adjusted_percentage
-                position_value = trade_amount * self.leverage
-                percentage_based_quantity = position_value / price
-                
-                # Use the smaller of the two for risk management
-                quantity = min(risk_based_quantity, percentage_based_quantity)
-                
-                logger.debug(f"Risk-based sizing: risk={risk_percentage:.3%}, "
-                           f"risk_qty={risk_based_quantity:.6f}, "
-                           f"pct_qty={percentage_based_quantity:.6f}, "
-                           f"chosen={quantity:.6f}")
+                if risk_per_unit > 0:
+                    risk_percentage = risk_per_unit / price
+                    
+                    # Maximum risk per trade (2% of balance)
+                    max_risk_amount = self.current_balance * 0.02
+                    
+                    # Calculate position size based on risk
+                    risk_based_quantity = max_risk_amount / risk_per_unit
+                    
+                    # Calculate percentage-based quantity
+                    trade_amount = self.current_balance * adjusted_percentage
+                    position_value = trade_amount * self.leverage
+                    percentage_based_quantity = position_value / price
+                    
+                    # Use the smaller of the two for risk management
+                    quantity = min(risk_based_quantity, percentage_based_quantity)
+                    
+                    logger.debug(f"Risk-based sizing: risk={risk_percentage:.3%}, "
+                               f"risk_qty={risk_based_quantity:.6f}, "
+                               f"pct_qty={percentage_based_quantity:.6f}, "
+                               f"chosen={quantity:.6f}")
+                else:
+                    logger.warning("Risk per unit is zero, falling back to percentage-based sizing")
+                    # Fall back to percentage-based sizing
+                    trade_amount = self.current_balance * adjusted_percentage
+                    position_value = trade_amount * self.leverage
+                    quantity = position_value / price
             else:
                 # Standard percentage-based sizing using FIXED_TRADE_PERCENTAGE
                 trade_amount = self.current_balance * adjusted_percentage
                 position_value = trade_amount * self.leverage
-                quantity = position_value / price
+                if price > 0:
+                    quantity = position_value / price
+                else:
+                    logger.error(f"Price is zero or negative: {price}")
+                    return 0
             
             # Use FIXED_TRADE_PERCENTAGE approach - no margin safety overrides
             # The quantity is already calculated based on the fixed trade percentage
@@ -390,10 +408,14 @@ class Backtester:
             
             # Minimum position size check
             min_position_value = 10.0  # Minimum $10 position
-            min_quantity = min_position_value / price
-            
-            if quantity < min_quantity:
-                logger.warning(f"Position size too small: {quantity:.6f} < {min_quantity:.6f}")
+            if price > 0:
+                min_quantity = min_position_value / price
+                
+                if quantity < min_quantity:
+                    logger.warning(f"Position size too small: {quantity:.6f} < {min_quantity:.6f}")
+                    return 0
+            else:
+                logger.error(f"Cannot calculate minimum quantity with price: {price}")
                 return 0
                 
             return quantity
@@ -412,7 +434,7 @@ class Backtester:
             base_stop_pct = STOP_LOSS_PCT
             
             # If ATR is available, use it for dynamic stop loss
-            if atr and atr > 0:
+            if atr and atr > 0 and entry_price > 0:
                 # ATR-based stop loss (1.5x ATR from entry)
                 atr_stop_distance = atr * 1.5
                 atr_stop_pct = atr_stop_distance / entry_price
@@ -518,20 +540,32 @@ class Backtester:
             # Deduct commission and margin
             self.current_balance -= commission
             
-            # Log enhanced position details with compounding info
-            risk_pct = (abs(price - stop_loss) / price * 100) if stop_loss else 0
-            growth_factor = self.current_balance / self.initial_balance
+            # Log enhanced position details with compounding info (with safety checks)
+            risk_pct = 0.0
+            if stop_loss and price > 0:
+                risk_pct = (abs(price - stop_loss) / price * 100)
+            
+            growth_factor = 1.0
+            if self.initial_balance > 0:
+                growth_factor = self.current_balance / self.initial_balance
+            else:
+                logger.warning(f"Initial balance is zero or negative for growth factor: {self.initial_balance}")
             
             logger.info(f"Opened {signal} position: {quantity:.6f} @ {price:.6f}")
             logger.info(f"  Stop Loss: {stop_loss:.6f} ({risk_pct:.2f}% risk)")
             
             if USE_DUAL_TAKE_PROFIT and take_profit_1 and take_profit_2:
-                tp1_pct = (abs(take_profit_1 - price) / price * 100)
-                tp2_pct = (abs(take_profit_2 - price) / price * 100)
+                tp1_pct = 0.0
+                tp2_pct = 0.0
+                if price > 0:
+                    tp1_pct = (abs(take_profit_1 - price) / price * 100)
+                    tp2_pct = (abs(take_profit_2 - price) / price * 100)
                 logger.info(f"  TP1: {take_profit_1:.6f} ({tp1_pct:.1f}% target) - {tp1_size_pct*100:.0f}% position")
                 logger.info(f"  TP2: {take_profit_2:.6f} ({tp2_pct:.1f}% target) - {tp2_size_pct*100:.0f}% position")
             elif take_profit:
-                tp_pct = (abs(take_profit - price) / price * 100)
+                tp_pct = 0.0
+                if price > 0:
+                    tp_pct = (abs(take_profit - price) / price * 100)
                 logger.info(f"  Take Profit: {take_profit:.6f} ({tp_pct:.1f}% target)")
             else:
                 logger.info(f"  Take Profit: Disabled")
@@ -582,18 +616,32 @@ class Backtester:
                 if self.current_balance > self.peak_balance:
                     self.peak_balance = self.current_balance
             
-            # Add balance tracking for compounding visualization
+            # Add balance tracking for compounding visualization (with safety check)
+            growth_factor = 1.0
+            if self.initial_balance > 0:
+                growth_factor = self.current_balance / self.initial_balance
+            else:
+                logger.warning(f"Initial balance is zero or negative for growth factor calculation: {self.initial_balance}")
+            
             self.balance_history.append({
                 'trade_number': self.trades_count,
                 'previous_balance': previous_balance,
                 'pnl': net_pnl,
                 'new_balance': self.current_balance,
-                'growth_factor': self.current_balance / self.initial_balance,
+                'growth_factor': growth_factor,
                 'timestamp': timestamp
             })
             
             # Calculate trade duration
             duration = (timestamp - self.current_position.timestamp).total_seconds() / 3600  # hours
+            
+            # Calculate return percentage with safety check for division by zero
+            position_value = self.current_position.size * self.current_position.entry_price
+            return_pct = 0.0
+            if position_value > 0:
+                return_pct = (net_pnl / position_value) * 100
+            else:
+                logger.warning(f"Position value is zero: size={self.current_position.size}, entry_price={self.current_position.entry_price}")
             
             # Record trade
             trade = {
@@ -608,7 +656,7 @@ class Backtester:
                 'gross_pnl': gross_pnl,
                 'commission': exit_commission,
                 'pnl': net_pnl,
-                'return_pct': (net_pnl / (self.current_position.size * self.current_position.entry_price)) * 100,
+                'return_pct': return_pct,
                 'close_reason': reason,
                 'max_profit': self.current_position.max_profit,
                 'max_loss': self.current_position.max_loss
@@ -616,9 +664,18 @@ class Backtester:
             
             self.results.add_trade(trade)
             
-            # Enhanced logging with compounding information
-            growth_pct = ((self.current_balance - previous_balance) / previous_balance) * 100
-            total_growth_pct = ((self.current_balance - self.initial_balance) / self.initial_balance) * 100
+            # Enhanced logging with compounding information (with safety checks)
+            growth_pct = 0.0
+            if previous_balance > 0:
+                growth_pct = ((self.current_balance - previous_balance) / previous_balance) * 100
+            else:
+                logger.warning(f"Previous balance is zero or negative: {previous_balance}")
+            
+            total_growth_pct = 0.0
+            if self.initial_balance > 0:
+                total_growth_pct = ((self.current_balance - self.initial_balance) / self.initial_balance) * 100
+            else:
+                logger.warning(f"Initial balance is zero or negative: {self.initial_balance}")
             
             logger.debug(f"Closed {self.current_position.side} position: {net_pnl:.4f} USDT ({reason})")
             logger.info(f"💰 Balance: ${previous_balance:.2f} → ${self.current_balance:.2f} (+{growth_pct:+.2f}%)")
@@ -801,13 +858,25 @@ class Backtester:
             # Calculate metrics
             metrics = self.results.calculate_metrics()
             
-            # Add auto compounding statistics
+            # Add auto compounding statistics (with safety checks)
+            compounding_factor = 1.0
+            balance_growth_factor = 1.0
+            if self.initial_balance > 0:
+                compounding_factor = self.current_balance / self.initial_balance
+                balance_growth_factor = self.current_balance / self.initial_balance
+            else:
+                logger.warning(f"Initial balance is zero or negative for compounding calculations: {self.initial_balance}")
+            
+            avg_balance_per_trade = self.initial_balance
+            if self.balance_history:
+                avg_balance_per_trade = sum([h['new_balance'] for h in self.balance_history]) / len(self.balance_history)
+            
             metrics.update({
-                'compounding_factor': self.current_balance / self.initial_balance,
+                'compounding_factor': compounding_factor,
                 'total_compounded_profit': self.total_compounded_profit,
                 'peak_balance': self.peak_balance,
-                'balance_growth_factor': self.current_balance / self.initial_balance,
-                'avg_balance_per_trade': sum([h['new_balance'] for h in self.balance_history]) / len(self.balance_history) if self.balance_history else self.initial_balance
+                'balance_growth_factor': balance_growth_factor,
+                'avg_balance_per_trade': avg_balance_per_trade
             })
             
             # Validate performance
