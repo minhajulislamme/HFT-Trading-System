@@ -57,7 +57,7 @@ MOMENTUM_WINDOW = int(os.getenv('MOMENTUM_WINDOW', '10'))                # Momen
 VOLUME_THRESHOLD = float(os.getenv('VOLUME_THRESHOLD', '1.5'))           # Volume spike threshold (1.5x average)
 
 # Timeframe optimized for pure price action pattern detection
-TIMEFRAME = os.getenv('TIMEFRAME', '5m')  # 5-minute timeframe for responsive pattern detection
+TIMEFRAME = os.getenv('TIMEFRAME', '15m')  # 5-minute timeframe for responsive pattern detection
 
 # Risk management - Enhanced for pattern-based trading
 USE_STOP_LOSS = os.getenv('USE_STOP_LOSS', 'True').lower() == 'true'

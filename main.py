@@ -41,7 +41,7 @@ from modules.config import (
     USE_TAKE_PROFIT, USE_DUAL_TAKE_PROFIT, 
     TAKE_PROFIT_1_PCT, TAKE_PROFIT_2_PCT,
     TAKE_PROFIT_1_SIZE_PCT, TAKE_PROFIT_2_SIZE_PCT,
-    UPDATE_TRAILING_ON_HOLD,
+    UPDATE_TRAILING_ON_HOLD, FIXED_TRADE_PERCENTAGE,
     # Add these to your config.py:
     # BACKTEST_BEFORE_LIVE = True
     # BACKTEST_MIN_PROFIT_PCT = 5.0
@@ -1396,7 +1396,6 @@ def check_for_signals(symbol=None):
                 stop_loss_price = risk_manager.calculate_stop_loss(symbol, "BUY", current_price)
                 
                 # Using fixed trade percentage from config
-                from modules.config import FIXED_TRADE_PERCENTAGE
                 logger.info(f"Opening BUY position with fixed trade percentage: {FIXED_TRADE_PERCENTAGE*100:.1f}%")
                 
                 quantity = risk_manager.calculate_position_size(

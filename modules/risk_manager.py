@@ -86,54 +86,71 @@ class RiskManager:
         trade_amount = balance * FIXED_TRADE_PERCENTAGE
         logger.debug(f"Using {FIXED_TRADE_PERCENTAGE*100:.1f}% of balance ({balance:.4f} USDT) = {trade_amount:.4f} USDT for trade")
         
-        # Use the fixed trade amount directly (no dynamic multiplier)
-        risk_amount = trade_amount
+        # Calculate position size where trade_amount = margin required (not position value)
+        # Position value = margin * leverage, so quantity = (margin * leverage) / price
+        # But we want to limit margin to trade_amount, so:
+        # quantity = trade_amount * leverage / price
+        max_quantity = (trade_amount * LEVERAGE) / price
         
-        # Calculate position size based on the fixed percentage and stop loss
-        if stop_loss_price and USE_STOP_LOSS:
-            # If stop loss is provided, calculate size based on it and available margin
-            risk_per_unit = abs(price - stop_loss_price)
-            if risk_per_unit <= 0:
-                logger.error("Stop loss too close to entry price")
-                return 0
-                
-            # Calculate max quantity based on available funds and 10x leverage
-            max_quantity = (risk_amount * LEVERAGE) / price
-        else:
-            # If no stop loss, use the fixed percentage approach with leverage
-            max_quantity = (risk_amount * LEVERAGE) / price
+        # The actual margin required will be: (max_quantity * price) / LEVERAGE = trade_amount
+        margin_required = (max_quantity * price) / LEVERAGE
+        logger.debug(f"Position sizing: margin required = {margin_required:.4f} USDT (should equal trade_amount = {trade_amount:.4f} USDT)")
         
         # Apply precision to quantity
         quantity_precision = symbol_info['quantity_precision']
-        quantity = round_step_size(max_quantity, get_step_size(symbol_info['min_qty']))
+        step_size = get_step_size(symbol_info['min_qty'])
+        
+        # Instead of rounding down, find the largest quantity that fits within our budget
+        # Start with the maximum possible quantity and round down to step size
+        quantity = round_step_size(max_quantity, step_size)
+        
+        # Check if we can use a larger quantity that still fits within our budget
+        # This ensures we maximize the use of our allocated margin
+        test_quantity = quantity + step_size
+        test_margin = (test_quantity * price) / LEVERAGE
+        
+        while test_margin <= trade_amount:
+            quantity = test_quantity
+            test_quantity += step_size
+            test_margin = (test_quantity * price) / LEVERAGE
+            
+        logger.debug(f"Optimized quantity: {quantity} (was {round_step_size(max_quantity, step_size)})")
         
         # Check minimum notional
         min_notional = symbol_info['min_notional']
         if quantity * price < min_notional:
             logger.warning(f"Position size too small - below minimum notional of {min_notional}")
             
-            # Try to adjust to meet minimum notional using FIXED_TRADE_PERCENTAGE as base
-            min_quantity = math.ceil(min_notional / price * 10**quantity_precision) / 10**quantity_precision
+            # Calculate minimum quantity needed to meet notional requirement
+            min_quantity_for_notional = min_notional / price
+            min_quantity = round_step_size(min_quantity_for_notional, step_size)
             
-            # Only increase if necessary to meet minimum notional, but stay within FIXED_TRADE_PERCENTAGE bounds
-            if min_quantity * price <= trade_amount * LEVERAGE:
+            # If rounded down quantity still doesn't meet notional, round up to next step
+            while min_quantity * price < min_notional:
+                min_quantity += step_size
+            
+            # Check if minimum quantity fits within our margin budget
+            min_margin_required = (min_quantity * price) / LEVERAGE
+            if min_margin_required <= trade_amount:
                 quantity = min_quantity
                 logger.info(f"Adjusted quantity to {quantity} to meet minimum notional requirement")
+                logger.info(f"Margin required for minimum: {min_margin_required:.4f} USDT within budget of {trade_amount:.4f} USDT")
             else:
                 logger.warning(f"Cannot meet minimum notional of {min_notional} with {FIXED_TRADE_PERCENTAGE*100:.1f}% trade allocation")
+                logger.warning(f"Required margin: {min_margin_required:.4f} USDT, Available: {trade_amount:.4f} USDT")
                 return 0
         
-        # Skip margin safety checks - use FIXED_TRADE_PERCENTAGE directly
-        # The user wants to use exactly 40% of balance per trade without margin safety overrides
-            
         # Final check to ensure we have a valid quantity
         if quantity <= 0:
             logger.error("Balance too low to open even minimum position")
             return 0
+        
+        # Calculate actual margin that will be used
+        actual_margin = (quantity * price) / LEVERAGE
+        margin_utilization = (actual_margin / trade_amount) * 100
                 
         logger.info(f"Calculated position size: {quantity} units at {price} per unit (using {FIXED_TRADE_PERCENTAGE*100:.1f}% of balance)")
-        # Log margin requirements for transparency
-        logger.debug(f"Margin required: {(quantity * price) / LEVERAGE:.4f} USDT, Available balance: {balance:.4f} USDT, Trade amount: {trade_amount:.4f} USDT")
+        logger.info(f"Margin required: {actual_margin:.4f} USDT (of {trade_amount:.4f} USDT budget, {margin_utilization:.1f}% utilization), Balance: {balance:.4f} USDT")
         
         return quantity
         
@@ -411,10 +428,10 @@ class RiskManager:
         # Calculate trade amount using FIXED_TRADE_PERCENTAGE (40%)
         trade_amount = balance * FIXED_TRADE_PERCENTAGE
         
-        # Calculate position size with leverage
+        # Calculate position size: margin = trade_amount, so position_size = (margin * leverage) / price
         position_size = (trade_amount * LEVERAGE) / current_price
         
-        # Calculate margin required
+        # Calculate actual margin required (should equal trade_amount)
         margin_required = (position_size * current_price) / LEVERAGE
         
         return {
@@ -422,12 +439,12 @@ class RiskManager:
             'current_price': current_price,
             'account_balance': balance,
             'fixed_trade_percentage': FIXED_TRADE_PERCENTAGE,
-            'trade_amount': trade_amount,
+            'trade_amount_budget': trade_amount,
             'position_size': position_size,
             'leverage': LEVERAGE,
             'margin_required': margin_required,
             'margin_as_pct_of_balance': (margin_required / balance) * 100,
-            'position_sizing_method': 'FIXED_TRADE_PERCENTAGE - No margin safety overrides'
+            'position_sizing_method': 'FIXED_TRADE_PERCENTAGE - Margin limited to trade amount'
         }
 
     def check_margin_sufficient(self, symbol, price, quantity):
@@ -446,14 +463,16 @@ class RiskManager:
         # Get account balance
         balance = self.binance_client.get_account_balance()
         
-        # Calculate required margin
+        # Calculate required margin for the position
         required_margin = (quantity * price) / LEVERAGE
         
         # Check if required margin fits within the fixed trade percentage allocation
         max_trade_amount = balance * FIXED_TRADE_PERCENTAGE
         
         if required_margin > max_trade_amount:
-            logger.warning(f"Position exceeds fixed trade allocation: Required margin {required_margin:.4f} USDT, Max trade amount {max_trade_amount:.4f} USDT ({FIXED_TRADE_PERCENTAGE*100:.1f}% of balance)")
+            logger.warning(f"Position exceeds fixed trade allocation:")
+            logger.warning(f"  Required margin: {required_margin:.4f} USDT")
+            logger.warning(f"  Max trade amount: {max_trade_amount:.4f} USDT ({FIXED_TRADE_PERCENTAGE*100:.1f}% of {balance:.4f} USDT balance)")
             return False
         
         logger.debug(f"Margin check passed: Required {required_margin:.4f} USDT within {FIXED_TRADE_PERCENTAGE*100:.1f}% allocation ({max_trade_amount:.4f} USDT)")
