@@ -187,3 +187,8 @@ cd /home/minhajulislam/tradingbot && pip uninstall pandas-ta
 check my full strategies line by line and make it support level buy and sell resistence level and backout resistence make buy and brackout support make sell
 
 use all major price action confirmation reversal and trend detection pin bar (hammer and shooting star) engulfing candle inside bar brackout cendle morning star evening star tweezer buttom/top  and bullshit/bearish flag and pennant marubozu (strong body/ no wick ) three white soldiers and three black crows doji(neutral /gravestone doji/ dragonfly ) spinning top/bottom and all major price action confirmation and reversal and trend detection
+
+
+
+
+#codebase check my full project and remove old take profit than add two take profit in my project like tp 1 and tp 2

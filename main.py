@@ -38,7 +38,9 @@ from modules.config import (
     USE_TELEGRAM, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID,
     SEND_DAILY_REPORT, DAILY_REPORT_TIME, AUTO_COMPOUND,
     MULTI_INSTANCE_MODE, MAX_POSITIONS_PER_SYMBOL,
-    USE_TAKE_PROFIT, TAKE_PROFIT_PCT,
+    USE_TAKE_PROFIT, USE_DUAL_TAKE_PROFIT, 
+    TAKE_PROFIT_1_PCT, TAKE_PROFIT_2_PCT,
+    TAKE_PROFIT_1_SIZE_PCT, TAKE_PROFIT_2_SIZE_PCT,
     UPDATE_TRAILING_ON_HOLD,
     # Add these to your config.py:
     # BACKTEST_BEFORE_LIVE = True
@@ -1393,9 +1395,9 @@ def check_for_signals(symbol=None):
             if risk_manager.should_open_position(symbol):
                 stop_loss_price = risk_manager.calculate_stop_loss(symbol, "BUY", current_price)
                 
-                # Get current risk level based on market conditions
-                current_risk = risk_manager.get_current_risk_level(symbol)
-                logger.info(f"Opening BUY position with risk level: {current_risk:.4f} (position size multiplier: {risk_manager.position_size_multiplier:.2f})")
+                # Using fixed trade percentage from config
+                from modules.config import FIXED_TRADE_PERCENTAGE
+                logger.info(f"Opening BUY position with fixed trade percentage: {FIXED_TRADE_PERCENTAGE*100:.1f}%")
                 
                 quantity = risk_manager.calculate_position_size(
                     symbol, "BUY", current_price, stop_loss_price
@@ -1441,12 +1443,9 @@ def check_for_signals(symbol=None):
                     
                     # Always attempt to place protective orders, even if verification failed
                     try:
-                        # Get recent klines for volatility calculation
-                        recent_klines = klines_data.get(symbol, [])[-30:] if klines_data.get(symbol) else None
-                        
                         # Place protective stop loss
-                        stop_loss_price = risk_manager.calculate_volatility_based_stop_loss(
-                            symbol, "BUY", entry_price, recent_klines
+                        stop_loss_price = risk_manager.calculate_stop_loss(
+                            symbol, "BUY", entry_price
                         )
                         
                         if stop_loss_price:
@@ -1454,24 +1453,26 @@ def check_for_signals(symbol=None):
                                 symbol, "SELL", position_amount, stop_loss_price
                             )
                             if sl_order:
-                                logger.info(f"✅ Volatility-based stop loss placed at {stop_loss_price}")
+                                logger.info(f"✅ Stop loss placed at {stop_loss_price}")
                             else:
                                 logger.error(f"❌ Failed to place stop loss at {stop_loss_price}")
                         
-                        # Place take profit order if enabled
-                        if USE_TAKE_PROFIT:
-                            take_profit_price = risk_manager.calculate_take_profit(
+                        # Place dual take profit orders
+                        if USE_TAKE_PROFIT and USE_DUAL_TAKE_PROFIT:
+                            dual_tp_data = risk_manager.calculate_dual_take_profit(
                                 symbol, "BUY", entry_price
                             )
                             
-                            if take_profit_price:
-                                tp_order = binance_client.place_take_profit_order(
-                                    symbol, "SELL", position_amount, take_profit_price
+                            if dual_tp_data:
+                                tp_result = binance_client.place_dual_take_profit_orders(
+                                    symbol, "SELL", position_amount, dual_tp_data
                                 )
-                                if tp_order:
-                                    logger.info(f"✅ Fixed take profit placed at {take_profit_price} ({TAKE_PROFIT_PCT*100:.1f}%)")
+                                if tp_result['success']:
+                                    logger.info(f"✅ Dual take profit orders placed:")
+                                    logger.info(f"  TP1: {TAKE_PROFIT_1_PCT*100:.1f}% - {TAKE_PROFIT_1_SIZE_PCT*100:.0f}% position")
+                                    logger.info(f"  TP2: {TAKE_PROFIT_2_PCT*100:.1f}% - {TAKE_PROFIT_2_SIZE_PCT*100:.0f}% position")
                                 else:
-                                    logger.error(f"❌ Failed to place take profit at {take_profit_price}")
+                                    logger.error(f"❌ Failed to place dual take profit orders")
                                     
                     except Exception as e:
                         logger.error(f"❌ Error placing protective orders: {e}")
@@ -1546,9 +1547,8 @@ def check_for_signals(symbol=None):
             if risk_manager.should_open_position(symbol):
                 stop_loss_price = risk_manager.calculate_stop_loss(symbol, "SELL", current_price)
                 
-                # Get current risk level based on market conditions
-                current_risk = risk_manager.get_current_risk_level(symbol)
-                logger.info(f"Opening SELL position with risk level: {current_risk:.4f} (position size multiplier: {risk_manager.position_size_multiplier:.2f})")
+                # Using fixed trade percentage from config
+                logger.info(f"Opening SELL position with fixed trade percentage: {FIXED_TRADE_PERCENTAGE*100:.1f}%")
                 
                 quantity = risk_manager.calculate_position_size(
                     symbol, "SELL", current_price, stop_loss_price
@@ -1595,12 +1595,9 @@ def check_for_signals(symbol=None):
                     
                     # Always attempt to place protective orders, even if verification failed
                     try:
-                        # Get recent klines for volatility calculation
-                        recent_klines = klines_data.get(symbol, [])[-30:] if klines_data.get(symbol) else None
-                        
                         # Place protective stop loss
-                        stop_loss_price = risk_manager.calculate_volatility_based_stop_loss(
-                            symbol, "SELL", entry_price, recent_klines
+                        stop_loss_price = risk_manager.calculate_stop_loss(
+                            symbol, "SELL", entry_price
                         )
                         
                         if stop_loss_price:
@@ -1608,24 +1605,26 @@ def check_for_signals(symbol=None):
                                 symbol, "BUY", position_amount, stop_loss_price
                             )
                             if sl_order:
-                                logger.info(f"✅ Volatility-based stop loss placed at {stop_loss_price}")
+                                logger.info(f"✅ Stop loss placed at {stop_loss_price}")
                             else:
                                 logger.error(f"❌ Failed to place stop loss at {stop_loss_price}")
                         
-                        # Place take profit order if enabled
-                        if USE_TAKE_PROFIT:
-                            take_profit_price = risk_manager.calculate_take_profit(
+                        # Place dual take profit orders
+                        if USE_TAKE_PROFIT and USE_DUAL_TAKE_PROFIT:
+                            dual_tp_data = risk_manager.calculate_dual_take_profit(
                                 symbol, "SELL", entry_price
                             )
                             
-                            if take_profit_price:
-                                tp_order = binance_client.place_take_profit_order(
-                                    symbol, "BUY", position_amount, take_profit_price
+                            if dual_tp_data:
+                                tp_result = binance_client.place_dual_take_profit_orders(
+                                    symbol, "BUY", position_amount, dual_tp_data
                                 )
-                                if tp_order:
-                                    logger.info(f"✅ Fixed take profit placed at {take_profit_price} ({TAKE_PROFIT_PCT*100:.1f}%)")
+                                if tp_result['success']:
+                                    logger.info(f"✅ Dual take profit orders placed:")
+                                    logger.info(f"  TP1: {TAKE_PROFIT_1_PCT*100:.1f}% - {TAKE_PROFIT_1_SIZE_PCT*100:.0f}% position")
+                                    logger.info(f"  TP2: {TAKE_PROFIT_2_PCT*100:.1f}% - {TAKE_PROFIT_2_SIZE_PCT*100:.0f}% position")
                                 else:
-                                    logger.error(f"❌ Failed to place take profit at {take_profit_price}")
+                                    logger.error(f"❌ Failed to place dual take profit orders")
                                     
                     except Exception as e:
                         logger.error(f"❌ Error placing protective orders: {e}")

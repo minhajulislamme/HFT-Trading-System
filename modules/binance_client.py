@@ -663,6 +663,151 @@ class BinanceClient:
         
         logger.error("Maximum retries reached when placing take profit order")
         return None
+    
+    def place_dual_take_profit_orders(self, symbol, side, quantity, dual_tp_data):
+        """
+        Place dual take profit orders (TP1 and TP2)
+        
+        Args:
+            symbol: Trading pair symbol
+            side: Side for closing position ('SELL' for long position, 'BUY' for short position)
+            quantity: Total position size
+            dual_tp_data: Dict containing TP1 and TP2 prices and size percentages
+            
+        Returns:
+            dict: Contains success status and order details
+        """
+        try:
+            tp1_quantity = quantity * dual_tp_data['tp1_size_pct']
+            tp2_quantity = quantity * dual_tp_data['tp2_size_pct'] - tp1_quantity  # Remaining after TP1
+            
+            # Get symbol info for quantity precision
+            symbol_info = self.get_symbol_info(symbol)
+            if symbol_info:
+                qty_precision = symbol_info['quantity_precision']
+                # Round quantities to proper precision
+                tp1_quantity = round(tp1_quantity, qty_precision)
+                tp2_quantity = round(tp2_quantity, qty_precision)
+            
+            # Cancel any existing take profit orders first (only once)
+            try:
+                existing_orders = self.get_open_orders(symbol)
+                for order in existing_orders:
+                    if (order.get('type') in ['TAKE_PROFIT_MARKET', 'TAKE_PROFIT'] and 
+                        order.get('symbol') == symbol):
+                        try:
+                            self.client.futures_cancel_order(
+                                symbol=symbol, 
+                                orderId=order.get('orderId')
+                            )
+                            logger.info(f"Cancelled existing take profit order {order.get('orderId')} for {symbol}")
+                        except Exception as e:
+                            logger.warning(f"Error cancelling existing take profit order: {e}")
+            except Exception as e:
+                logger.warning(f"Error checking existing take profit orders: {e}")
+            
+            # Place TP1 order (partial close) - without cancellation
+            tp1_order = self._place_single_take_profit_order(
+                symbol, side, tp1_quantity, dual_tp_data['tp1_price']
+            )
+            
+            # Place TP2 order (remaining position) - without cancellation
+            tp2_order = self._place_single_take_profit_order(
+                symbol, side, tp2_quantity, dual_tp_data['tp2_price']
+            )
+            
+            result = {
+                'success': tp1_order is not None and tp2_order is not None,
+                'tp1_order': tp1_order,
+                'tp2_order': tp2_order,
+                'tp1_quantity': tp1_quantity,
+                'tp2_quantity': tp2_quantity
+            }
+            
+            if result['success']:
+                logger.info(f"✅ Dual take profit orders placed successfully:")
+                logger.info(f"  TP1: {tp1_quantity} @ {dual_tp_data['tp1_price']}")
+                logger.info(f"  TP2: {tp2_quantity} @ {dual_tp_data['tp2_price']}")
+            else:
+                logger.error(f"❌ Failed to place dual take profit orders")
+                
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error placing dual take profit orders: {e}")
+            return {'success': False, 'error': str(e)}
+    
+    def _place_single_take_profit_order(self, symbol, side, quantity, stop_price):
+        """
+        Place a single take profit order without cancelling existing orders
+        Used by dual take profit system
+        """
+        max_retries = 3
+        backoff_factor = 2
+        
+        for retry in range(max_retries):
+            try:
+                params = {
+                    'symbol': symbol,
+                    'side': side,
+                    'type': 'TAKE_PROFIT_MARKET',
+                    'quantity': quantity,  # Use specific quantity, not closePosition
+                    'stopPrice': stop_price,
+                    'timeInForce': 'GTC'
+                }
+                    
+                order = self.client.futures_create_order(**params)
+                logger.info(f"Placed take profit order: {quantity} @ {stop_price}")
+                return order
+            except Exception as e:
+                error_str = str(e)
+                retry_errors = [
+                    "Invalid JSON",
+                    "Connection reset", 
+                    "Read timed out",
+                    "Connection aborted",
+                    "Connection refused",
+                    "code=0",
+                    "<!DOCTYPE html>"
+                ]
+                
+                should_retry = any(err in error_str for err in retry_errors)
+                
+                if should_retry and retry < max_retries - 1:
+                    wait_time = backoff_factor * (2 ** retry)
+                    logger.warning(f"Retrying _place_single_take_profit_order due to error: {e}")
+                    time.sleep(wait_time)
+                else:
+                    logger.error(f"Failed to place take profit order: {e}")
+                    return None
+        
+        logger.error("Maximum retries reached when placing take profit order")
+        return None
+    
+    def cancel_take_profit_orders_only(self, symbol):
+        """Cancel only take profit orders for a symbol, preserving stop loss orders"""
+        try:
+            open_orders = self.get_open_orders(symbol)
+            cancelled_orders = []
+            
+            for order in open_orders:
+                if order.get('type') in ['TAKE_PROFIT_MARKET', 'TAKE_PROFIT']:
+                    try:
+                        cancel_result = self.client.futures_cancel_order(
+                            symbol=symbol, 
+                            orderId=order.get('orderId')
+                        )
+                        cancelled_orders.append(order.get('orderId'))
+                        logger.info(f"Cancelled take profit order {order.get('orderId')} for {symbol}")
+                    except Exception as e:
+                        logger.warning(f"Error cancelling take profit order {order.get('orderId')}: {e}")
+                        
+            return cancelled_orders
+            
+        except Exception as e:
+            logger.error(f"Error cancelling take profit orders: {e}")
+            return []
+    
     def cancel_all_open_orders(self, symbol):
         """Cancel all open orders for a symbol"""
         try:

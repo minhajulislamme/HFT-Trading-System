@@ -31,30 +31,21 @@ LEVERAGE = int(os.getenv('LEVERAGE', '25'))  # Default leverage set to 25x
 MARGIN_TYPE = os.getenv('MARGIN_TYPE', 'CROSSED')  # ISOLATED or CROSSED
 STRATEGY = os.getenv('STRATEGY', 'PurePriceActionStrategy')
 
-# Position sizing - Enhanced risk management (aligned with SmartTrendCatcher)
+# Position sizing - Fixed percentage approach (40% of balance per trade)
 INITIAL_BALANCE = float(os.getenv('INITIAL_BALANCE', '50.0'))
-FIXED_TRADE_PERCENTAGE = float(os.getenv('FIXED_TRADE_PERCENTAGE', '0.40'))  # 40% to match strategy base_position_pct
+FIXED_TRADE_PERCENTAGE = float(os.getenv('FIXED_TRADE_PERCENTAGE', '0.40'))  # 40% of balance per trade - STRICT
 MAX_OPEN_POSITIONS = int(os.getenv('MAX_OPEN_POSITIONS', '3'))  # Conservative for better risk management
 
-# Margin safety settings - More conservative
-MARGIN_SAFETY_FACTOR = float(os.getenv('MARGIN_SAFETY_FACTOR', '0.90'))  # Use at most 90% of available margin
-MAX_POSITION_SIZE_PCT = float(os.getenv('MAX_POSITION_SIZE_PCT', '0.50'))  # Max 50% position size (matches strategy)
-MIN_FREE_BALANCE_PCT = float(os.getenv('MIN_FREE_BALANCE_PCT', '0.10'))  # Keep at least 10% free
+# Note: Margin safety settings removed - position sizing uses FIXED_TRADE_PERCENTAGE only
 
 # Multi-instance configuration for running separate bot instances per trading pair
 MULTI_INSTANCE_MODE = os.getenv('MULTI_INSTANCE_MODE', 'True').lower() == 'true'
 MAX_POSITIONS_PER_SYMBOL = int(os.getenv('MAX_POSITIONS_PER_SYMBOL', '3'))  # Updated to match .env
 
-# Auto-compounding settings - Enhanced with performance-based adjustments
+# Auto-compounding settings - Simplified configuration
 AUTO_COMPOUND = os.getenv('AUTO_COMPOUND', 'True').lower() == 'true'
 COMPOUND_REINVEST_PERCENT = float(os.getenv('COMPOUND_REINVEST_PERCENT', '0.75'))
 COMPOUND_INTERVAL = os.getenv('COMPOUND_INTERVAL', 'DAILY')
-
-# Dynamic compounding adjustments
-COMPOUND_PERFORMANCE_WINDOW = int(os.getenv('COMPOUND_PERFORMANCE_WINDOW', '7'))  # Look back 7 days
-COMPOUND_MIN_WIN_RATE = float(os.getenv('COMPOUND_MIN_WIN_RATE', '0.6'))  # Require 60% win rate
-COMPOUND_MAX_DRAWDOWN = float(os.getenv('COMPOUND_MAX_DRAWDOWN', '0.15'))  # Pause if >15% drawdown
-COMPOUND_SCALING_FACTOR = float(os.getenv('COMPOUND_SCALING_FACTOR', '0.5'))  # Reduce compounding if performance poor
 
 # Pure Price Action Strategy Parameters - No Support/Resistance Dependencies
 
@@ -66,7 +57,7 @@ MOMENTUM_WINDOW = int(os.getenv('MOMENTUM_WINDOW', '10'))                # Momen
 VOLUME_THRESHOLD = float(os.getenv('VOLUME_THRESHOLD', '1.5'))           # Volume spike threshold (1.5x average)
 
 # Timeframe optimized for pure price action pattern detection
-TIMEFRAME = os.getenv('TIMEFRAME', '15m')  # 5-minute timeframe for responsive pattern detection
+TIMEFRAME = os.getenv('TIMEFRAME', '5m')  # 5-minute timeframe for responsive pattern detection
 
 # Risk management - Enhanced for pattern-based trading
 USE_STOP_LOSS = os.getenv('USE_STOP_LOSS', 'True').lower() == 'true'
@@ -75,9 +66,17 @@ TRAILING_STOP = os.getenv('TRAILING_STOP', 'True').lower() == 'true'
 TRAILING_STOP_PCT = float(os.getenv('TRAILING_STOP_PCT', '0.005'))  # 0.5% trailing stop
 UPDATE_TRAILING_ON_HOLD = os.getenv('UPDATE_TRAILING_ON_HOLD', 'True').lower() == 'true'
 
-# Take profit settings - Optimized for pattern-based trading
+# Take profit settings - Dual take profit system
 USE_TAKE_PROFIT = os.getenv('USE_TAKE_PROFIT', 'True').lower() == 'true'
-TAKE_PROFIT_PCT = float(os.getenv('TAKE_PROFIT_PCT', '0.015'))  # 1.5% take profit for better R:R
+USE_DUAL_TAKE_PROFIT = os.getenv('USE_DUAL_TAKE_PROFIT', 'True').lower() == 'true'
+
+# First take profit (partial profit taking)
+TAKE_PROFIT_1_PCT = float(os.getenv('TAKE_PROFIT_1_PCT', '0.005'))  # 0.5% for TP1
+TAKE_PROFIT_1_SIZE_PCT = float(os.getenv('TAKE_PROFIT_1_SIZE_PCT', '0.50'))  # Close 50% at TP1
+
+# Second take profit (remaining position)
+TAKE_PROFIT_2_PCT = float(os.getenv('TAKE_PROFIT_2_PCT', '0.01'))  # 1.0% for TP2
+TAKE_PROFIT_2_SIZE_PCT = float(os.getenv('TAKE_PROFIT_2_SIZE_PCT', '1.00'))  # Close remaining 100% at TP2
 
 # Enhanced backtesting parameters
 BACKTEST_START_DATE = os.getenv('BACKTEST_START_DATE', '2023-01-01')
@@ -126,24 +125,6 @@ MIN_SIGNAL_STRENGTH = int(os.getenv('MIN_SIGNAL_STRENGTH', '4'))  # Minimum sign
 # Volume confirmation (when available)
 VOLUME_CONFIRMATION_MULTIPLIER = float(os.getenv('VOLUME_CONFIRMATION_MULTIPLIER', '1.5'))  # 1.5x average volume
 ENABLE_VOLUME_CONFIRMATION = os.getenv('ENABLE_VOLUME_CONFIRMATION', 'True').lower() == 'true'
-
-# Risk Management for Pure Price Action Patterns
-PATTERN_BASED_POSITION_SIZING = os.getenv('PATTERN_BASED_POSITION_SIZING', 'True').lower() == 'true'
-HIGH_CONFIDENCE_POSITION_MULTIPLIER = float(os.getenv('HIGH_CONFIDENCE_POSITION_MULTIPLIER', '1.2'))  # 20% larger for high confidence
-LOW_CONFIDENCE_POSITION_MULTIPLIER = float(os.getenv('LOW_CONFIDENCE_POSITION_MULTIPLIER', '0.8'))  # 20% smaller for low confidence
-
-# Pattern-Specific Risk Management (pure price action)
-PATTERN_SPECIFIC_RISK = os.getenv('PATTERN_SPECIFIC_RISK', 'True').lower() == 'true'
-
-# Different stop losses for different pattern types
-REVERSAL_PATTERN_STOP_PCT = float(os.getenv('REVERSAL_PATTERN_STOP_PCT', '0.012'))   # 1.2% for reversal patterns
-MOMENTUM_PATTERN_STOP_PCT = float(os.getenv('MOMENTUM_PATTERN_STOP_PCT', '0.008'))   # 0.8% for momentum patterns
-CONTINUATION_PATTERN_STOP_PCT = float(os.getenv('CONTINUATION_PATTERN_STOP_PCT', '0.006'))  # 0.6% for continuation
-
-# Different take profits for pattern types  
-REVERSAL_PATTERN_TP_PCT = float(os.getenv('REVERSAL_PATTERN_TP_PCT', '0.025'))      # 2.5% for reversals
-MOMENTUM_PATTERN_TP_PCT = float(os.getenv('MOMENTUM_PATTERN_TP_PCT', '0.03'))       # 3% for momentum patterns
-CONTINUATION_PATTERN_TP_PCT = float(os.getenv('CONTINUATION_PATTERN_TP_PCT', '0.02'))  # 2% for continuation
 
 # Pure Price Action Pattern Confidence Levels
 HIGH_CONFIDENCE_PATTERNS = ['morning_star', 'evening_star', 'three_white_soldiers', 'three_black_crows', 

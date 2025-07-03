@@ -15,8 +15,9 @@ from modules.strategies import get_strategy
 from modules.config import (
     BACKTEST_INITIAL_BALANCE, BACKTEST_COMMISSION, LEVERAGE,
     USE_STOP_LOSS, STOP_LOSS_PCT, TRAILING_STOP, TRAILING_STOP_PCT,
-    USE_TAKE_PROFIT, TAKE_PROFIT_PCT,
-    FIXED_TRADE_PERCENTAGE, MARGIN_SAFETY_FACTOR,
+    USE_TAKE_PROFIT, USE_DUAL_TAKE_PROFIT,
+    TAKE_PROFIT_1_PCT, TAKE_PROFIT_2_PCT, TAKE_PROFIT_1_SIZE_PCT, TAKE_PROFIT_2_SIZE_PCT,
+    FIXED_TRADE_PERCENTAGE,  # Only import the position sizing variable we actually use
     BACKTEST_MIN_PROFIT_PCT, BACKTEST_MIN_WIN_RATE, BACKTEST_MAX_DRAWDOWN, BACKTEST_MIN_PROFIT_FACTOR
 )
 
@@ -32,14 +33,23 @@ class Position:
     """Class to represent a trading position"""
     
     def __init__(self, symbol: str, side: str, size: float, entry_price: float, 
-                 timestamp: str, stop_loss: float = None, take_profit: float = None):
+                 timestamp: str, stop_loss: float = None, take_profit: float = None,
+                 take_profit_1: float = None, take_profit_2: float = None,
+                 tp1_size_pct: float = None, tp2_size_pct: float = None):
         self.symbol = symbol
         self.side = side  # 'BUY' or 'SELL'
         self.size = abs(size)  # Always positive
+        self.original_size = abs(size)  # Keep track of original size
         self.entry_price = entry_price
         self.timestamp = timestamp
         self.stop_loss = stop_loss
-        self.take_profit = take_profit
+        self.take_profit = take_profit  # Legacy single TP
+        self.take_profit_1 = take_profit_1  # First take profit level
+        self.take_profit_2 = take_profit_2  # Second take profit level
+        self.tp1_size_pct = tp1_size_pct if tp1_size_pct else 0.5  # Default 50%
+        self.tp2_size_pct = tp2_size_pct if tp2_size_pct else 1.0  # Default 100%
+        self.tp1_hit = False  # Track if TP1 has been hit
+        self.tp2_hit = False  # Track if TP2 has been hit
         self.unrealized_pnl = 0.0
         self.max_profit = 0.0
         self.max_loss = 0.0
@@ -81,6 +91,26 @@ class Position:
         else:
             return current_price <= self.take_profit
             
+    def should_take_profit_1(self, current_price: float) -> bool:
+        """Check if position should hit TP1"""
+        if not self.take_profit_1 or self.tp1_hit:
+            return False
+            
+        if self.side == 'BUY':
+            return current_price >= self.take_profit_1
+        else:
+            return current_price <= self.take_profit_1
+    
+    def should_take_profit_2(self, current_price: float) -> bool:
+        """Check if position should hit TP2"""
+        if not self.take_profit_2 or self.tp2_hit:
+            return False
+            
+        if self.side == 'BUY':
+            return current_price >= self.take_profit_2
+        else:
+            return current_price <= self.take_profit_2
+    
     def update_trailing_stop(self, current_price: float, trailing_pct: float):
         """Update trailing stop loss"""
         if not TRAILING_STOP:
@@ -96,6 +126,26 @@ class Position:
             new_stop = current_price * (1 + trailing_pct)
             if not self.stop_loss or new_stop < self.stop_loss:
                 self.stop_loss = new_stop
+
+    def execute_take_profit_1(self) -> float:
+        """Execute TP1 and return the portion of position closed"""
+        if self.tp1_hit:
+            return 0
+            
+        self.tp1_hit = True
+        tp1_quantity = self.original_size * self.tp1_size_pct
+        self.size -= tp1_quantity  # Reduce position size
+        return tp1_quantity
+        
+    def execute_take_profit_2(self) -> float:
+        """Execute TP2 and return the portion of position closed"""
+        if self.tp2_hit:
+            return 0
+            
+        self.tp2_hit = True
+        remaining_quantity = self.size  # Close remaining position
+        self.size = 0  # Position fully closed
+        return remaining_quantity
 
 
 class BacktestResults:
@@ -329,19 +379,14 @@ class Backtester:
                            f"pct_qty={percentage_based_quantity:.6f}, "
                            f"chosen={quantity:.6f}")
             else:
-                # Standard percentage-based sizing
+                # Standard percentage-based sizing using FIXED_TRADE_PERCENTAGE
                 trade_amount = self.current_balance * adjusted_percentage
                 position_value = trade_amount * self.leverage
                 quantity = position_value / price
             
-            # Apply margin safety limits
-            max_margin = self.current_balance * MARGIN_SAFETY_FACTOR
-            max_position_value = max_margin * self.leverage
-            max_quantity_by_margin = max_position_value / price
-            
-            if quantity > max_quantity_by_margin:
-                quantity = max_quantity_by_margin
-                logger.debug(f"Position size limited by margin safety: {quantity:.6f}")
+            # Use FIXED_TRADE_PERCENTAGE approach - no margin safety overrides
+            # The quantity is already calculated based on the fixed trade percentage
+            logger.debug(f"Position size calculated using fixed trade percentage: {quantity:.6f}")
             
             # Minimum position size check
             min_position_value = 10.0  # Minimum $10 position
@@ -436,13 +481,24 @@ class Backtester:
                 logger.warning(f"Insufficient balance: need {total_required:.2f}, have {self.current_balance:.2f}")
                 return False
             
-            # Calculate take profit if enabled
+            # Calculate take profit levels if enabled
             take_profit = None
-            if USE_TAKE_PROFIT:
+            take_profit_1 = None
+            take_profit_2 = None
+            tp1_size_pct = None
+            tp2_size_pct = None
+            
+            if USE_TAKE_PROFIT and USE_DUAL_TAKE_PROFIT:
+                # Calculate dual take profit levels
                 if signal == 'BUY':
-                    take_profit = price * (1 + TAKE_PROFIT_PCT)
+                    take_profit_1 = price * (1 + TAKE_PROFIT_1_PCT)
+                    take_profit_2 = price * (1 + TAKE_PROFIT_2_PCT)
                 elif signal == 'SELL':
-                    take_profit = price * (1 - TAKE_PROFIT_PCT)
+                    take_profit_1 = price * (1 - TAKE_PROFIT_1_PCT)
+                    take_profit_2 = price * (1 - TAKE_PROFIT_2_PCT)
+                
+                tp1_size_pct = TAKE_PROFIT_1_SIZE_PCT
+                tp2_size_pct = TAKE_PROFIT_2_SIZE_PCT
             
             # Create enhanced position
             self.current_position = Position(
@@ -452,7 +508,11 @@ class Backtester:
                 entry_price=price,
                 timestamp=timestamp,
                 stop_loss=stop_loss,
-                take_profit=take_profit
+                take_profit=take_profit,
+                take_profit_1=take_profit_1,
+                take_profit_2=take_profit_2,
+                tp1_size_pct=tp1_size_pct,
+                tp2_size_pct=tp2_size_pct
             )
             
             # Deduct commission and margin
@@ -464,7 +524,13 @@ class Backtester:
             
             logger.info(f"Opened {signal} position: {quantity:.6f} @ {price:.6f}")
             logger.info(f"  Stop Loss: {stop_loss:.6f} ({risk_pct:.2f}% risk)")
-            if take_profit:
+            
+            if USE_DUAL_TAKE_PROFIT and take_profit_1 and take_profit_2:
+                tp1_pct = (abs(take_profit_1 - price) / price * 100)
+                tp2_pct = (abs(take_profit_2 - price) / price * 100)
+                logger.info(f"  TP1: {take_profit_1:.6f} ({tp1_pct:.1f}% target) - {tp1_size_pct*100:.0f}% position")
+                logger.info(f"  TP2: {take_profit_2:.6f} ({tp2_pct:.1f}% target) - {tp2_size_pct*100:.0f}% position")
+            elif take_profit:
                 tp_pct = (abs(take_profit - price) / price * 100)
                 logger.info(f"  Take Profit: {take_profit:.6f} ({tp_pct:.1f}% target)")
             else:
@@ -610,11 +676,30 @@ class Backtester:
                     if self.current_position:
                         self.update_position(row)
                         
-                        # Check for take profit first (higher priority)
-                        if self.current_position.should_take_profit(price):
-                            self.close_position(row, "Take Profit")
-                        # Check for stop loss
-                        elif self.current_position.should_stop_loss(price):
+                        # Check for dual take profit first (higher priority)
+                        if USE_DUAL_TAKE_PROFIT:
+                            # Check TP1 first
+                            if self.current_position.should_take_profit_1(price):
+                                tp1_quantity = self.current_position.execute_take_profit_1()
+                                if tp1_quantity > 0:
+                                    logger.info(f"TP1 Hit: Closed {tp1_quantity:.6f} units at {price:.6f}")
+                                    # Don't close entire position, just reduce size
+                                    if self.current_position.size <= 0:
+                                        self.close_position(row, "TP1 - Full Position Closed")
+                            
+                            # Check TP2 for remaining position
+                            elif self.current_position.should_take_profit_2(price):
+                                tp2_quantity = self.current_position.execute_take_profit_2()
+                                if tp2_quantity > 0:
+                                    logger.info(f"TP2 Hit: Closed remaining {tp2_quantity:.6f} units at {price:.6f}")
+                                    self.close_position(row, "TP2 - Remaining Position Closed")
+                        else:
+                            # Legacy single take profit check
+                            if self.current_position.should_take_profit(price):
+                                self.close_position(row, "Take Profit")
+                        
+                        # Check for stop loss (only if position still exists)
+                        if self.current_position and self.current_position.should_stop_loss(price):
                             self.close_position(row, "Stop Loss")
                     
                     # Get trading signal (only check if we have enough historical data)
